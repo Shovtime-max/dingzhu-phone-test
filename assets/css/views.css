@@ -258,11 +258,18 @@
   gap: 6px;
   margin: 0 3px 7px;
 }
+/* 今天：日期头整行一条淡金底（只有这一处金黄，别给整张卡上色） */
+.ag-row.today .ag-day {
+  background: linear-gradient(90deg, rgba(255, 197, 84, 0.2), rgba(255, 197, 84, 0.07));
+  border-radius: 10px;
+  padding: 4px 9px;
+  margin: 0 0 7px;
+}
 .ag-dot {
   width: 5px; height: 5px; border-radius: 50%;
   background: #c6d0dc; flex: none;
 }
-.ag-row.today .ag-dot { background: var(--brand); }
+.ag-row.today .ag-dot { background: #d99a0a; }
 .ag-dnum {
   font-size: var(--fs-main);
   font-weight: 800;
@@ -296,8 +303,8 @@
   height: 18px;
   padding: 0 6px;
   border-radius: var(--r-pill);
-  background: var(--brand-light);
-  color: var(--brand-dark);
+  background: rgba(255, 197, 84, 0.3);
+  color: #8a5300;
   font-size: 9.5px;
   font-weight: 800;
   display: inline-flex;
@@ -312,7 +319,7 @@
   flex: none;
   font-variant-numeric: tabular-nums;
 }
-.ag-row.today .ag-sum { color: var(--brand-dark); font-weight: 800; }
+.ag-row.today .ag-sum { color: #9a6a10; font-weight: 800; }
 
 /* 一天一张白卡 */
 .ag-card {
@@ -321,6 +328,11 @@
   border-radius: var(--r-card);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+}
+/* 今天的卡：只在顶部带一层很淡的暖色，配一条金边 */
+.ag-row.today .ag-card {
+  background: linear-gradient(180deg, #fffdf6, #ffffff 46%);
+  border-color: rgba(214, 152, 18, 0.26);
 }
 
 .ag-slots { display: flex; flex-direction: column; }
@@ -1142,8 +1154,8 @@ a.ag-item:active {
 .chip.jump.ping { animation: chipPing 0.62s ease-out; }
 
 @keyframes rowFlash {
-  0% { box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.42), var(--shadow-card); }
-  100% { box-shadow: 0 0 0 0 rgba(0, 102, 255, 0), var(--shadow-card); }
+  0% { box-shadow: 0 0 0 2px rgba(217, 154, 10, 0.42), var(--shadow-card); }
+  100% { box-shadow: 0 0 0 0 rgba(217, 154, 10, 0), var(--shadow-card); }
 }
 .ag-row.today.flash .ag-card { animation: rowFlash 1.1s ease-out; }
 
@@ -2149,3 +2161,105 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .an-page .avg .av { font-size: 17px; }
 .an-page .avg { min-height: 72px; padding: 12px 11px; }
 .an-page .avg .af { margin-top: 6px; }
+
+/* ==========================================================================
+   订单 · 已结清：卡片堆卡片
+   · 叠态：每层往下错开 13px、左右各内缩 5px —— 内缩后露出的是卡片圆角，
+     不会出现被「切一刀」的直角边
+   · 位移全部走 transform: translateY，不再动 top，避免逐帧 layout 导致发涩
+   ========================================================================== */
+.stack {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.stack-list {
+  position: relative;
+  /* 动画期间裁切，防止中途的卡片压到下面的说明文字；
+     落定后由 .stack[data-settled="1"] 放开，否则最下层卡片与它的投影会被切出一条直边 */
+  overflow: hidden;
+  /* 一张卡 + 3 条露出来的边 + 8px 余量：
+     最后那层卡的下沿圆角要留在容器内，否则会被切出一条平直的直角 */
+  height: calc(var(--h, 108px) + 47px);
+  transition: height 0.62s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+.stack-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  transform: translateY(0) scale(1);
+  transform-origin: 50% 0;
+  /* 位移与内缩都走 transform：不改 left/right/width，卡片内部文字不会每帧重排 */
+  transition: transform 0.62s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+/* 叠态：越靠前越在上，下面每层下移 13px 并缩 1.2%，露出上沿一条带圆角的边 */
+.stack[data-open="0"] .stack-item {
+  transform: translateY(calc(min(var(--i), 3) * 13px)) scale(calc(1 - min(var(--i), 3) * 0.012));
+  z-index: calc(60 - var(--i));
+}
+
+/* 落定后不再裁切：圆角与投影完整呼吸 */
+.stack[data-settled="1"] .stack-list { overflow: visible; }
+
+/* 叠态里第 5 张往后压在同一位置、完全被盖住：去掉它们的投影，
+   否则七八层阴影叠在一块会形成一道很重的暗带 */
+.stack[data-open="0"] .stack-item:nth-child(n + 5) .swipe { box-shadow: none; }
+
+/* 展开：等距排开，缩进归零 */
+.stack[data-open="1"] .stack-list {
+  height: calc(var(--n) * (var(--h, 108px) + 10px) - 10px);
+}
+.stack[data-open="1"] .stack-item {
+  transform: translateY(calc(var(--i) * (var(--h, 108px) + 10px))) scale(1);
+  z-index: 1;
+}
+
+/* 说明 / 收起入口：一行小字，不是一条按钮栏 */
+.stack-note {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-tag);
+  font-weight: 700;
+  color: var(--ink-3);
+  text-align: center;
+  cursor: pointer;
+  transition: color 0.18s ease;
+}
+.stack-note:active { color: var(--brand); }
+/* 展开后把「收起」挪到列表上方：否则要滚完 10 张才找得到 */
+.stack[data-open="1"] .stack-note { order: -1; margin: 0 0 6px; }
+.sn-b { display: none; color: var(--brand); font-weight: 800; }
+.stack[data-open="1"] .sn-a { display: none; }
+.stack[data-open="1"] .sn-b { display: inline; }
+
+@media (prefers-reduced-motion: reduce) {
+  .stack-list,
+  .stack-item { transition: none !important; }
+}
+
+/* On a real touch device the system supplies the frame and status indicators. */
+@media (max-width: 639px), (hover: none) and (pointer: coarse) {
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body { display: block; padding: 0; background: var(--canvas); }
+  .device { display: contents; }
+  .device::before, .device::after, .dev-btn, .dev-home, .desktop-hint, .statusbar { display: none; }
+  .shell {
+    --tabbar-h: calc(70px + env(safe-area-inset-bottom, 0px));
+    width: 100%; max-width: none; height: 100vh; height: 100dvh;
+    max-height: none; border-radius: 0; box-shadow: none;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .appbar { padding-left: max(var(--pad), env(safe-area-inset-left, 0px)); padding-right: max(var(--pad), env(safe-area-inset-right, 0px)); }
+  .screen { padding-left: max(var(--pad), env(safe-area-inset-left, 0px)); padding-right: max(var(--pad), env(safe-area-inset-right, 0px)); }
+  .tabbar { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .dockbar { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+}

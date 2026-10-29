@@ -5,7 +5,8 @@
   "use strict";
   var D = w.DATA, U = w.UI;
 
-  var state = { filter: "全部", q: "", sort: "amount" };
+  /* stackOpen：已结清单是否展开（筛选切换会重建列表，靠它记住） */
+  var state = { filter: "全部", q: "", sort: "amount", stackOpen: false };
 
   var FILTERS = [
     { key: "全部", label: "全部" },
@@ -113,6 +114,64 @@
     );
   }
 
+  /* 已结清的单：真实卡片互相叠压成一摞（卡片堆卡片），点整摞展开、再点收起。
+     明确筛「已结清」时不折叠 —— 那时用户就是要逐张看这堆历史单。 */
+  function stackHtml(settled) {
+    if (!settled.length) return "";
+    var s = D.stats(settled);
+    var open = !!state.stackOpen;
+    return (
+      '<section class="stack" id="settleStack" data-open="' + (open ? 1 : 0) + '" data-settled="1">' +
+        '<div class="stack-list" id="stackList" style="--n:' + settled.length + '">' +
+          settled.map(function (o, i) {
+            return '<div class="stack-item" style="--i:' + i + '">' + wrapCard(o) + "</div>";
+          }).join("") +
+        "</div>" +
+        '<button class="stack-note" type="button" id="stackToggle" aria-expanded="' + (open ? "true" : "false") + '">' +
+          '<span class="sn-a">共 ' + settled.length + " 单 · ¥" + U.n(s.paid) + " 已收清 · 点卡片展开</span>" +
+          '<span class="sn-b">收起这 ' + settled.length + " 单</span>" +
+        "</button>" +
+      "</section>"
+    );
+  }
+
+  /* 叠态高度 = 一张卡 + 3 条露出来的边，所以要先量出卡片真实高度 */
+  function measureStack() {
+    var list = document.getElementById("stackList");
+    if (!list || !list.querySelector) return;
+    var first = list.querySelector(".stack-item");
+    if (!first || typeof first.getBoundingClientRect !== "function") return;
+    var h = Math.round(first.getBoundingClientRect().height);
+    if (h > 0 && list.style && list.style.setProperty) list.style.setProperty("--h", h + "px");
+  }
+
+  /* 展开／叠回：全程 absolute + top/height 过渡，两个方向都能被打断 */
+  function toggleStack() {
+    var box = document.getElementById("settleStack");
+    if (!box) return;
+    var open = box.getAttribute("data-open") === "1";
+    var items = [].slice.call(box.querySelectorAll(".stack-item"));
+    var reduce = !!(w.matchMedia && w.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    /* 展开按顺序错峰 45ms；收起逆序 35ms（收起比展开快一点） */
+    var order = open ? items.slice().reverse() : items;
+    var step = open ? 35 : 45;
+    order.forEach(function (el, i) {
+      el.style.transitionDelay = (reduce ? 0 : i * step) + "ms";
+      /* 只在动的这段时间提升为合成层，动画结束撤掉（规格要求别常驻 will-change） */
+      el.style.willChange = "transform";
+    });
+    var settle = reduce ? 0 : (order.length - 1) * step + 720;
+    setTimeout(function () {
+      items.forEach(function (el) { el.style.willChange = ""; });
+      /* 动画走完再放开裁切：最下层的圆角与投影才不会被容器切出直边 */
+      box.setAttribute("data-settled", "1");
+    }, settle);
+    box.setAttribute("data-settled", "0");
+    box.setAttribute("data-open", open ? "0" : "1");
+    document.getElementById("stackToggle").setAttribute("aria-expanded", open ? "false" : "true");
+    state.stackOpen = !open;
+  }
+
   function listHtml() {
     var arr = filtered();
     if (!arr.length) {
@@ -122,7 +181,13 @@
         '<div class="mt16"><a class="btn ghost sm" href="#/create">记一单</a></div></div>'
       );
     }
-    return arr.map(wrapCard).join("");
+    if (state.filter === "settled") return arr.map(wrapCard).join("");
+
+    var live = [], settled = [];
+    arr.forEach(function (o) {
+      (D.state(o) === "settled" ? settled : live).push(o);
+    });
+    return live.map(wrapCard).join("") + stackHtml(settled);
   }
 
   function sumHtml() {
@@ -177,7 +242,9 @@
 
     function refresh() {
       document.getElementById("sumWrap").innerHTML = sumHtml();
-      document.getElementById("listWrap").innerHTML = listHtml();
+      var lw = document.getElementById("listWrap");
+      lw.innerHTML = listHtml();
+      measureStack();
     }
 
     function askDelete(o) {
@@ -232,7 +299,27 @@
     }
 
     function mount() {
-      U.bindSwipe(document.getElementById("listWrap"), { onAct: swipeAct });
+      var lw = document.getElementById("listWrap");
+      U.bindSwipe(lw, { onAct: swipeAct });
+
+      /* 已结清那一摞：叠态点卡片 → 展开（不跳详情）；展开态点卡片 → 正常进详情。
+         绑在 #screen 上：它在每次 render 时都是新元素，所以不会累积监听器。 */
+      var scr = document.getElementById("screen");
+      scr.addEventListener("click", function (e) {
+        if (!e.target.closest) return;
+        var box = e.target.closest("#settleStack");
+        if (!box) return;
+        if (e.target.closest("#stackToggle")) { toggleStack(); return; }
+        if (box.getAttribute("data-open") === "1") return;
+        if (e.target.closest(".order-card")) {
+          e.preventDefault();
+          toggleStack();
+        }
+      });
+
+      /* 屏幕宽度变，卡片换行后高度会变 → 重新量一次 */
+      measureStack();
+      if (w.addEventListener) w.addEventListener("resize", measureStack);
 
       var row = document.getElementById("filterRow");
       row.addEventListener("click", function (e) {
