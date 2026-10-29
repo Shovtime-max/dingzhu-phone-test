@@ -140,10 +140,10 @@
         '<div class="fx">' +
           '<div class="col"><div class="t-xs mut b7">整单报价' +
             (o.mode === "大包" || o.mode === "人工" ? "（" + o.mode + "）" : "") + "</div>" +
-            '<div class="b8 mt4" style="font-size:16px;letter-spacing:-.03em">¥' + U.n(o.quote) + "</div>" +
+            '<div class="b8 mt4" style="font-size:17px;letter-spacing:-.03em">¥' + U.n(o.quote) + "</div>" +
             '<div class="t-xs mut mt2">主房 ' + o.main + " 间 · 偏房 " + o.wing + " 间</div></div>" +
           '<div class="col tr"><div class="t-xs mut b7">已收金额' + (o.paid ? '<span class="green-t"> ✓</span>' : "") + "</div>" +
-            '<div class="b8 green-t mt4" style="font-size:16px;letter-spacing:-.03em">¥' + U.n(o.paid) + "</div>" +
+            '<div class="b8 green-t mt4" style="font-size:17px;letter-spacing:-.03em">¥' + U.n(o.paid) + "</div>" +
             '<div class="t-xs mut mt2">' + (o.flows && o.flows[0] ? o.flows[0].date + " " + o.flows[0].type : "—") + "</div></div>" +
         "</div>" +
         '<div class="bar thin mt12"><i class="' + (prog === 100 ? "green" : "") + '" style="width:' + prog + '%"></i></div>' +
@@ -153,7 +153,7 @@
     var pay =
       '<section class="card mt12">' +
         '<div class="card-head" style="margin-bottom:11px">' +
-          '<div class="card-title" style="font-size:13px">' + U.icon("wallet", 15) + "快速收款登记</div>" +
+          '<div class="card-title" style="font-size:14px">' + U.icon("wallet", 15) + "快速收款登记</div>" +
           '<span class="card-meta">点击立即核销入账</span>' +
         "</div>" +
         '<div class="pay-grid" id="payGrid">' + payKeys(o) + "</div>" +
@@ -167,7 +167,7 @@
     var spec =
       '<section class="card mt12">' +
         '<div class="card-head" style="margin-bottom:6px">' +
-          '<div class="card-title" style="font-size:13px">' + U.icon("layers", 15) + "屋面规格与用料</div>" +
+          '<div class="card-title" style="font-size:14px">' + U.icon("layers", 15) + "屋面规格与用料</div>" +
           '<button class="pill xs line" id="btnEditSpec">' + U.icon("edit", 10) + "改</button>" +
         "</div>" +
         '<div class="rowline"><span class="k">房屋结构间数</span>' +
@@ -223,7 +223,7 @@
     var photo =
       '<section class="card mt12" id="photoCard">' +
         '<div class="card-head" style="margin-bottom:11px">' +
-          '<div class="card-title" style="font-size:13px">' + U.icon("camera", 15) + "完工留档" +
+          '<div class="card-title" style="font-size:14px">' + U.icon("camera", 15) + "完工留档" +
             (ms.has ? ' <span class="pill xs green">已留档</span>' : "") + "</div>" +
           '<span class="card-meta">' + msMeta + "</span>" +
         "</div>" +

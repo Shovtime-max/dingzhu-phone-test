@@ -87,7 +87,7 @@
       /* 地址与业主：整张卡要抬到兄弟卡片之上，否则下拉会被下一张卡盖住 */
       '<section class="card addr-card mt12">' +
         '<div class="card-head" style="margin-bottom:12px">' +
-          '<div class="card-title" style="font-size:13px">施工地址与业主</div>' +
+          '<div class="card-title" style="font-size:14px">施工地址与业主</div>' +
           '<span class="pill xs brand">' + U.icon("zap", 10) + "极速录入</span>" +
         "</div>" +
         '<div class="addr-wrap">' +
@@ -112,7 +112,7 @@
       /* 屋面规格 */
       '<section class="card mt12">' +
         '<div class="card-head" style="margin-bottom:12px">' +
-          '<div class="card-title" style="font-size:13px">屋面规格与用料</div>' +
+          '<div class="card-title" style="font-size:14px">屋面规格与用料</div>' +
           '<span class="pill xs" id="roomSum">' + (st.main + st.wing) + " 间</span>" +
         "</div>" +
         '<div class="fx g10">' +
@@ -153,7 +153,7 @@
       /* 报价 */
       '<section class="card mt12">' +
         '<div class="card-head" style="margin-bottom:12px">' +
-          '<div class="card-title" style="font-size:13px">整单报价</div>' +
+          '<div class="card-title" style="font-size:14px">整单报价</div>' +
           '<button class="pill xs line" id="btnEstimate">' + U.icon("sparkles", 10) + "按均价估算</button>" +
         "</div>" +
         '<div class="price-input"><span class="cur">¥</span>' +
@@ -170,7 +170,7 @@
       /* 备注 */
       '<section class="card mt12">' +
         '<div class="card-head" style="margin-bottom:12px">' +
-          '<div class="card-title" style="font-size:13px">备注</div>' +
+          '<div class="card-title" style="font-size:14px">备注</div>' +
           '<span class="pill xs line">随手记</span>' +
         "</div>" +
         '<input class="inline-input" id="inNote" type="text" autocomplete="off" value="' + U.esc(src ? (src.note || "") : "") + '" ' +
