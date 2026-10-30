@@ -439,10 +439,9 @@
      中国同名村太多，不带偏置会搜出外省的村 */
   var lastNear = { lat: 35.905, lng: 118.980 };
 
-  /* 队伍出发地：固定取 DATA.BASE。
-     不做本机覆盖——出发地一般不变，多一层存储反而会让「改了 data.js 却不生效」很难查。 */
+  /* 队伍出发地优先读取本机配置，未配置时使用内置地点。 */
   function baseGeo() {
-    return (w.DATA && w.DATA.BASE) || null;
+    return w.DATA ? (w.DATA.getBase ? w.DATA.getBase() : w.DATA.BASE) : null;
   }
 
   function nearPoint() { return lastNear; }

@@ -52,6 +52,7 @@ async function modifyManifest(file, change) {
     const a=setup(), o=await draft(a.x);
     await a.c.DATA.scheduleOrder(o.id,'2026-10-30','下午');
     await a.c.DATA.recordPayment(o.id,500,'银行');
+    await a.c.DATA.saveBase({name:'测试出发地',addr:'测试地址',lat:36.2,lng:119.2});
     await a.c.PROFILE.save({name:'备份队',avatar:'data:image/png;base64,iVBORw0KGgo='});
     await a.c.DATA.addTeam({name:'第三队',alias:'测试',color:'#0066FF',leader:'测试队长',members:[{name:'测试队员'}]});
     a.x.mount('create');a.x.fill();await a.x.el.btnToPending.fire('click');
@@ -63,6 +64,7 @@ async function modifyManifest(file, change) {
     const reopened=setup(b.x.store,b.disk);const saved=reopened.c.DATA.byId(o.id);
     assert.equal(saved.owner,o.owner);assert.equal(saved.paid,500);assert.equal(saved.flows.at(-1).type,'银行');assert.equal(saved.scheduledOn,'2026-10-30');
     assert.equal(reopened.c.PROFILE.get().name,'备份队');assert.equal(reopened.c.PROFILE.get().avatar,'data:image/png;base64,iVBORw0KGgo=');
+    assert.equal(reopened.c.GEO.baseGeo().name,'测试出发地');assert.equal(reopened.c.GEO.baseGeo().lat,36.2);
     assert.equal(reopened.c.DATA.TEAMS.length,3);assert.equal(reopened.c.DATA.PENDING.length,6);
     assert.equal((await reopened.c.MEDIA.snapshot(reopened.c.DATA.mediaSet())).length,1);
   });

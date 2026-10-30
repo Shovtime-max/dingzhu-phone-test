@@ -500,7 +500,7 @@
     return {
       orders: [], pending: [], slots: {}, moved: {}, patches: {}, orderPatches: {}, trash: [],
       /* 队伍：新增的整条记录 / 对内置队的改动 / 被删掉的内置队 id */
-      teams: [], teamPatches: {}, teamDeleted: [], processPresets: null,
+      teams: [], teamPatches: {}, teamDeleted: [], processPresets: null, base: null,
       revision: 0
     };
   }
@@ -514,6 +514,7 @@
   }
   function validateAdds(a) {
     if (!object(a)) throw new Error("本地数据格式异常，已停止写入；请先备份现有数据");
+    if (a.base != null && (!object(a.base) || !Number.isFinite(a.base.lat) || !Number.isFinite(a.base.lng) || Math.abs(a.base.lat) > 90 || Math.abs(a.base.lng) > 180 || typeof a.base.name !== "string" || !a.base.name.trim() || a.base.name.length > 200 || typeof a.base.full !== "string" || a.base.full.length > 1000)) throw new Error("队伍出发地格式不正确，已停止写入");
     ["orders", "pending"].forEach(function (k) {
       if (a[k] === undefined) a[k] = [];
       if (!Array.isArray(a[k]) || !a[k].every(function (x) { return object(x) && validId(x.id); }))
@@ -952,7 +953,7 @@
     o.scheduledOn = iso;
     return true;
   }
-  function createOrder(input, date, ampm, pendingId) {
+  function createOrder(input, date, ampm, pendingId, customProcesses) {
     return commit(function (next) {
       var p = pendingId ? pendingById(pendingId) : null;
       if (pendingId && !p) throw new Error("这条线索不存在，请刷新后重试");
@@ -970,6 +971,7 @@
       if (!validId(o.id) || byId(o.id)) throw new Error("订单号重复或无效，请重新提交");
       o.createdOn = TODAY.iso;
       if (date) stageSlot(next, date, ampm, o);
+      mergeCustomProcesses(next, customProcesses);
       next.orders.push(o);
       if (p) next.patches[p.id] = Object.assign({}, next.patches[p.id], {
         orderId:o.id, stage:"待排期", days:0,
@@ -1310,12 +1312,13 @@
     });
   }
 
-  function addPending(input) {
+  function addPending(input, customProcesses) {
     return commit(function (next) {
       var p = copy(input); p.id = p.id || nextPendingId();
       if (pendingById(p.id)) throw new Error("线索号重复");
       validateMoney({quote:p.budget, paid:p.paid || 0});
       p.orderId = p.orderId || null; p.createdOn = TODAY.iso;
+      mergeCustomProcesses(next, customProcesses);
       next.pending.push(p); return p.id;
     }).then(pendingById);
   }
@@ -1328,12 +1331,30 @@
     }).then(pendingById);
   }
   function processPresets() { return (ADDED.processPresets || DEFAULT_PROCESSES).slice(); }
+  function mergeCustomProcesses(next, list) {
+    if (!list || !list.length) return;
+    var all = (next.processPresets || DEFAULT_PROCESSES).concat(list.map(function (s) { return String(s).trim(); })).filter(Boolean);
+    all = all.filter(function (s, i) { return all.indexOf(s) === i; });
+    if (all.length > 30 || all.some(function (s) { return s.length > 20; })) throw new Error("工序最多 30 项，每项不超过 20 字，请先整理工序预设");
+    next.processPresets = all;
+  }
+  function removeProcessPreset(name) {
+    return commit(function (next) { next.processPresets = (next.processPresets || DEFAULT_PROCESSES).filter(function (s) { return s !== name; }); });
+  }
+  function getBase() { return copy(ADDED.base || BASE); }
+  function saveBase(place) {
+    return commit(function (next) {
+      if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) throw new Error("请先选择有效的地图搜索结果");
+      next.base = {name:String(place.name || "").trim(), full:String(place.full || [place.addr, place.name].filter(Boolean).join(" · ")), lat:place.lat, lng:place.lng};
+      return copy(next.base);
+    });
+  }
   function saveProcessPresets(list) {
     return commit(function (next) {
       if (!Array.isArray(list)) throw new Error("请填写工序名称");
       var clean = list.map(function (x) { return String(x).trim(); }).filter(Boolean);
       clean = clean.filter(function (x, i) { return clean.indexOf(x) === i; });
-      if (!clean.length || clean.length > 30 || clean.some(function (x) { return x.length > 20; })) throw new Error("请设置 1 至 30 项工序，每项不超过 20 字");
+      if (clean.length > 30 || clean.some(function (x) { return x.length > 20; })) throw new Error("最多设置 30 项工序，每项不超过 20 字");
       next.processPresets = clean;
       return clean.slice();
     });
@@ -1609,6 +1630,8 @@
 
   w.DATA = {
     processPresets: processPresets,
+    removeProcessPreset: removeProcessPreset,
+    getBase: getBase, saveBase: saveBase,
     saveProcessPresets: saveProcessPresets,
     setTeams: setTeams,
     BASE: BASE,

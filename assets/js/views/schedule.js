@@ -196,6 +196,21 @@
     return n + " 单" + (d.full ? " · 排满" : "");
   }
 
+  function teamPills(it) {
+    var o = it.oid && D.byId(it.oid);
+    var teams = o ? (o.teams || []).map(D.teamById).filter(function (t) { return !!t; }) : [];
+    if (!teams.length) return '<span class="ag-team unassigned">' + U.esc(it.team || "未分配") + '</span>';
+    return '<span class="ag-teams">' + teams.map(function (t) {
+      var color = /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : "#0066FF";
+      var rgb = [1, 3, 5].map(function (i) {
+        var c = parseInt(color.slice(i, i + 2), 16) / 255;
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      });
+      var ink = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.179 ? "#000000" : "#FFFFFF";
+      return '<span class="ag-team" style="--team-color:' + color + ';--team-ink:' + ink + '">' + U.esc(t.name) + '</span>';
+    }).join("") + '</span>';
+  }
+
   function slotHtml(slot, day) {
     var has = slot.items && slot.items.length;
     var body = "";
@@ -217,7 +232,7 @@
             '<div class="ag-ji">' +
               '<b class="ag-ttl">' + U.esc(it.title) + "</b>" +
               '<span class="ag-sub">' +
-                '<span class="ag-team">' + it.team + "</span>" +
+                teamPills(it) +
                 '<i class="ag-sep">·</i>' +
                 '<span class="ag-txt">' + U.esc(it.desc) + "</span>" +
                 (it.oid ? jobWx(it.oid, day) : "") +
@@ -462,6 +477,10 @@
 
     mask.addEventListener("click", function (e) {
       if (e.target.closest("#dxClose")) { U.closeSheet(); return; }
+      var job = e.target.closest(".dx-job"), href = job && job.getAttribute("href");
+      if (href && href.indexOf("#/order/") === 0) {
+        e.preventDefault(); w.APP.openOrder(href.slice(8)); return;
+      }
       var free = e.target.closest(".dx-free");
       if (free) {
         var day = free.getAttribute("data-day");

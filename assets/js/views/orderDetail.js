@@ -346,6 +346,27 @@
       });
     }
 
+    function rescheduleSheet() {
+      var date = o.scheduledOn || D.TODAY.iso;
+      var ampm = String(o.scheduledAt || "").split(" ")[1] || "上午";
+      U.sheet('<h3>改档期</h3><div class="sub">选择新日期和时段，支持跨月、跨年改期。</div>' +
+        '<div class="field"><label for="rescheduleDate">施工日期</label><input class="field-box" id="rescheduleDate" type="date" min="1900-01-01" max="9998-12-31" value="' + U.esc(date) + '"></div>' +
+        '<div class="field"><label for="reschedulePeriod">施工时段</label><select class="field-box" id="reschedulePeriod">' +
+          ["上午", "下午"].map(function (p) { return '<option' + (p === ampm ? ' selected' : '') + '>' + p + '</option>'; }).join("") + '</select></div>' +
+        '<div class="btn-row mt14"><button type="button" class="btn ghost" id="rescheduleCancel">取消</button><button type="button" class="btn primary" id="rescheduleSave">保存档期</button></div>');
+      document.getElementById("rescheduleCancel").addEventListener("click", function () { U.closeSheet(); });
+      document.getElementById("rescheduleSave").addEventListener("click", function () {
+        var nextDate = document.getElementById("rescheduleDate").value;
+        var nextPeriod = document.getElementById("reschedulePeriod").value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate) || nextDate < "1900-01-01" || nextDate > "9998-12-31" || ["上午", "下午"].indexOf(nextPeriod) < 0) {
+          U.toast("请选择有效的日期和上午／下午时段"); return;
+        }
+        return writeAction(function () { return D.moveOrder(o.id, nextDate, nextPeriod); }, function () {
+          U.closeSheet(); U.toast("已改到 " + nextDate + " " + nextPeriod);
+        });
+      });
+    }
+
     /* 没留档就完工：提醒，但不拦死 */
     function noMediaSheet() {
       var mask = U.sheet(
@@ -479,7 +500,7 @@
         });
       });
       var changeDate = document.getElementById("btnEditSpec2");
-      if (changeDate) changeDate.addEventListener("click", function () { w.location.hash = "#/schedule"; U.toast("长按订单拖到新档期"); });
+      if (changeDate) changeDate.addEventListener("click", rescheduleSheet);
     }
 
     return { bar: bar, body: body, mount: mount, tab: "orders" };

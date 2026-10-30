@@ -153,21 +153,45 @@
         if (document.getElementById('backupCreate') !== create) return;
         var ready = U.sheet('<h3>备份文件已生成</h3><div class="sub">' + U.esc(summary(result.summary, result.photos)) + '<br>' + U.esc(size(result.file.size)) + ' · ' + U.esc(new Date(result.createdAt).toLocaleString()) + '</div>' +
           '<div class="key-warn">点击下方按钮后，在系统菜单中选择“存储到文件”，再选“我的 iPhone”或“iCloud 云盘”。请确认文件已经保存。</div>' +
-          '<button class="btn primary mt14" id="backupSave">保存备份文件</button>');
+          '<button class="btn primary mt14" id="backupSave">保存备份文件</button>' +
+          '<button type="button" class="btn ghost mt10" id="backupDownload" style="width:100%">直接下载备份文件</button><div class="sub mt10" id="backupSaveStatus" role="status" aria-live="polite"></div>');
         var save = document.getElementById('backupSave');
-        save.addEventListener('click', function () {
-          if (save.disabled) return;
-          // Share must be invoked in this click, after generation has completed.
-          if (w.navigator.share && w.navigator.canShare && w.navigator.canShare({files:[result.file]})) {
-            save.disabled = true;
-            return w.navigator.share({files:[result.file]}).then(function () {
-              U.toast('已交给系统，请确认备份文件已保存');
-            }).catch(function (err) { if (err.name !== 'AbortError') U.toast('未能保存，请重试'); }).then(function () { save.disabled = false; });
-          }
+        var saveStatus = document.getElementById('backupSaveStatus');
+        function download() {
           var url = w.URL.createObjectURL(result.file), a = document.createElement('a');
           a.href = url; a.download = result.file.name; document.body.appendChild(a); a.click(); a.remove();
           w.setTimeout(function () { w.URL.revokeObjectURL(url); }, 60000);
-          U.toast('已发起文件下载，请确认保存位置');
+          saveStatus.textContent = '已请求下载，请在浏览器下载列表中确认文件；在 iPhone 上可将文件存入“我的 iPhone”或“iCloud 云盘”。';
+        }
+        document.getElementById('backupDownload').addEventListener('click', download);
+        function failed(err) {
+          if (err.name === 'AbortError') { saveStatus.textContent = '已取消保存，备份文件仍可重新保存或下载。'; return; }
+          saveStatus.textContent = '系统保存未能打开，请点“直接下载备份文件”；如果当前应用限制下载，请在 Safari 中打开本页面后保存。';
+        }
+        save.addEventListener('click', function () {
+          if (save.disabled) return;
+          saveStatus.textContent = '';
+          if (w.showSaveFilePicker) {
+            save.disabled = true;
+            var picker;
+            try { picker = w.showSaveFilePicker({suggestedName:result.file.name, types:[{description:'鼎筑完整备份', accept:{'application/octet-stream':['.dingzhu']}}]}); }
+            catch (err) { save.disabled = false; failed(err); return; }
+            return picker.then(function (handle) { return handle.createWritable(); }).then(function (stream) {
+              return stream.write(result.file).then(function () { return stream.close(); }).catch(function (err) { return stream.abort().catch(function () {}).then(function () { throw err; }); });
+            }).then(function () { saveStatus.textContent = '备份文件已写入所选位置。'; }).catch(failed).then(function () { save.disabled = false; });
+          }
+          // Share must be invoked in this click, after generation has completed.
+          var canShare = false;
+          try { canShare = !!(w.navigator.share && w.navigator.canShare && w.navigator.canShare({files:[result.file]})); } catch (err) {}
+          if (canShare) {
+            save.disabled = true;
+            var sharing;
+            try { sharing = w.navigator.share({files:[result.file]}); } catch (err) { save.disabled = false; failed(err); return; }
+            return sharing.then(function () {
+              saveStatus.textContent = '已交给系统，请确认备份文件已保存。';
+            }).catch(failed).then(function () { save.disabled = false; });
+          }
+          download();
         });
       }).catch(error);
     });

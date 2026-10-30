@@ -411,11 +411,21 @@
 .ag-st.done { background: var(--orange-bg); color: #b06000; }
 .ag-st.settled { background: var(--green-bg); color: #00895c; }
 
+.ag-teams { display: inline-flex; flex: none; flex-wrap: wrap; gap: 4px; max-width: 100%; }
 .ag-team {
+  display: inline-flex;
+  align-items: center;
   flex: none;
+  min-height: 20px;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
   font-size: var(--fs-tag);
   font-weight: 800;
-  color: var(--brand);
+  line-height: 1.4;
+  background: var(--team-color, var(--line-soft));
+  color: var(--team-ink, var(--ink-3));
+  overflow-wrap: anywhere;
 }
 .ag-txt {
   flex: 0 1 auto;
@@ -2086,6 +2096,9 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
   outline: none;
 }
 .field-box:focus { border-color: rgba(0, 102, 255, 0.5); background: #fff; }
+#rescheduleDate, #reschedulePeriod { min-width: 0; font-size: 16px; }
+#scopeRow .tagchip, #processPresetChips .tagchip { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
+#baseSearch { font-size: 16px; }
 
 /* ==========================================================================
    分析 · 统计区间（跨月） + 分月对比

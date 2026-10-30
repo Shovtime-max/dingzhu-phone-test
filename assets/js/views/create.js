@@ -401,13 +401,22 @@
 
       U.bindTeamPicker(document.getElementById("createTeams"), st.teams);
       document.getElementById("btnProcessPresets").addEventListener("click", function () {
-        U.processPresetSheet(function () {
+        U.processPresetSheet(function (removed) {
           SCOPES = D.processPresets();
+          if (removed && !src) st.scope = st.scope.filter(function (s) { return s !== removed; });
           var choices = SCOPES.concat(st.scope).filter(function (v, i, a) { return a.indexOf(v) === i; });
           document.getElementById("scopeRow").innerHTML = choices.map(function (v) {
             return '<button type="button" class="tagchip' + (st.scope.indexOf(v) >= 0 ? ' on' : '') + '" data-s="' + U.esc(v) + '">' + U.icon("check", 11) + U.esc(v) + '</button>';
           }).join("");
         });
+      });
+      U.bindProcessDelete(document.getElementById("scopeRow"), function (name) {
+        SCOPES = D.processPresets();
+        if (!src) st.scope = st.scope.filter(function (s) { return s !== name; });
+        var choices = SCOPES.concat(src ? st.scope : []).filter(function (v, i, a) { return a.indexOf(v) === i; });
+        document.getElementById("scopeRow").innerHTML = choices.map(function (v) {
+          return '<button type="button" class="tagchip' + (st.scope.indexOf(v) >= 0 ? ' on' : '') + '" data-s="' + U.esc(v) + '">' + U.icon("check", 11) + U.esc(v) + '</button>';
+        }).join("");
       });
       /* 工序多选（预设词条） */
       document.getElementById("scopeRow").addEventListener("click", function (e) {
@@ -469,7 +478,7 @@
         if (!owner) { U.toast("先填业主姓名"); return null; }
         if (!addr) { U.toast("先填施工位置"); return null; }
         if (!st.teams.length) { U.toast("请至少选择一支施工队伍"); return null; }
-        return { owner: owner, addr: addr, phone: phone, price: price, scope: scope, note: note, place: placeOf(addr) };
+        return { owner: owner, addr: addr, phone: phone, price: price, scope: scope, customScope: custom.filter(function (s) { return !src || (src.tags || []).indexOf(s) < 0; }), note: note, place: placeOf(addr) };
       }
 
       function geoOf(f) {
@@ -546,7 +555,7 @@
           days: 0,
           blocker: "档期未定 · 待与业主确认上工日子",
           orderId: null
-        });
+        }, f.customScope);
       }
 
       function onDestination(kind) {
@@ -575,7 +584,7 @@
           tags:f.scope, note:f.note || "录单生成", flows:[]
         };
         /* 从待定池补信息：带上线索号，建单后线索自动关联，不会重复成单 */
-        return D.createOrder(o, null, null, src ? src.id : null).then(function (saved) {
+        return D.createOrder(o, null, null, src ? src.id : null, f.customScope).then(function (saved) {
           resetForm();
           U.toast(src ? "信息已补全 " + saved.id + " · 去排期落位" : "已建档 " + saved.id + " · 去排期选档期");
           setTimeout(function () { w.location.hash = "#/schedule?order=" + saved.id; }, 620);

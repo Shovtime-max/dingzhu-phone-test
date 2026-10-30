@@ -52,6 +52,7 @@
     var leavingOrder = /^#\/order\//.test(activeHash), enteringOrder = /^#\/order\//.test(hash);
     if (activeHash && currentScreen) positions[activeHash] = departure && departure.hash === activeHash ? departure.top : currentScreen.scrollTop;
     departure = null;
+    if (hash !== activeHash && U.closeSheet) U.closeSheet();
     if (enteringOrder && !leavingOrder && activeHash && /^#\/(schedule|orders|pending|analytics)(\?|$)/.test(activeHash)) {
       orderReturn = activeHash;
       try { w.sessionStorage.setItem("dingzhu.orderReturn", orderReturn); } catch (e) {}
@@ -96,7 +97,6 @@
 
   function settingsSheet() {
     var D = w.DATA;
-    var n = D.addedCount();
     var mask = U.sheet(
       "<h3>设置</h3>" +
       '<div class="sub">王队 · ' + D.TODAY.label + "</div>" +
@@ -116,7 +116,7 @@
         '<span class="go">' + U.icon("chevronRight", 16) + "</span>" +
       "</a>" +
       /* 队伍出发地：顺路判定里「从家出发」的那一端 */
-      '<div class="set-row" id="baseRow">' +
+      '<div class="set-row" id="baseRow" role="button" tabindex="0">' +
         '<span class="si">' + U.icon("home", 18) + "</span>" +
         '<div><b>队伍出发地</b><span id="baseTxt">' +
           U.esc((w.GEO.baseGeo() || {}).full || "未设置") + "</span></div>" +
@@ -131,29 +131,16 @@
         '<span class="si">' + U.icon("clipboard", 18) + '</span>' +
         '<div><b>备份与恢复</b><span>保存完整备份文件 · 换设备可恢复</span></div>' +
         '<span class="go">' + U.icon("chevronRight", 16) + '</span>' +
-      '</button>' +
-      /* 录单/排期新增的都存本地，这里给一个回到原始演示数据的出口 */
-      '<div class="set-row" id="resetRow" role="button" tabindex="0"' +
-        (n ? "" : ' style="opacity:.45"') + ">" +
-        '<span class="si">' + U.icon("trash", 18) + "</span>" +
-        '<div><b>清空演示改动</b><span id="resetTxt">' +
-          (n ? "已有 " + n + " 处新增 / 改动 · 点此恢复原始 18 单 5 线索" : "暂无改动 · 当前就是原始演示数据") +
-        "</span></div>" +
-      "</div>"
+      '</button>'
     );
     mask.addEventListener("click", function (e) {
       if (e.target.closest("[data-go]")) { U.closeSheet(); return; }
       if (e.target.closest("#processRow")) { U.closeSheet(); U.processPresetSheet(); return; }
       if (e.target.closest("#geoRow")) { U.closeSheet(); keySheet(); return; }
       if (e.target.closest("#backupRow")) { U.closeSheet(); w.BACKUP.sheet(); return; }
-      if (e.target.closest("#resetRow")) {
-        if (!w.DATA.addedCount()) { U.toast("当前就是原始演示数据"); return; }
-        return w.DATA.resetAdds().then(function () {
-          U.closeSheet(); U.toast("已清空改动 · 刷新后回到原始演示数据");
-          setTimeout(function () { w.location.reload(); }, 700);
-        }).catch(function (err) { U.toast(err.message); });
-      }
+      if (e.target.closest("#baseRow")) { baseSheet(); return; }
     });
+    mask.addEventListener("keydown", function (e) { if (e.target.closest("#baseRow") && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); baseSheet(); } });
 
     w.GEO.health(true).then(function (h) {
       var el = document.getElementById("geoMode");
@@ -163,6 +150,42 @@
       else if (h.online) el.innerHTML = '<i class="dot off"></i>未配高德 Key · 当前用 OSM 搜索 · 点此配置';
       else el.innerHTML = '<i class="dot off"></i>未配 Key · 只有本地村镇库 · 点此配置';
     });
+  }
+
+  function baseSheet() {
+    var GEO = w.GEO, selected = null, items = [], seq = 0, timer;
+    var mask = U.sheet('<h3>队伍出发地</h3><div class="sub">搜索并选择地图结果，保存后用于天气和出发车程估算。</div>' +
+      '<label class="field" for="baseSearch">搜索地点</label><input class="field-box" id="baseSearch" type="search" placeholder="输入村镇、地址或地点名称">' +
+      '<button type="button" class="btn ghost mt10" id="baseSearchGo">搜索地图</button><div id="baseResults" class="mt12" role="status" aria-live="polite"></div>' +
+      '<div class="sub mt12" id="baseSelected">当前：' + U.esc((GEO.baseGeo() || {}).full || (GEO.baseGeo() || {}).name || "未设置") + '</div><button type="button" class="btn primary mt14" id="baseSave" disabled>保存出发地</button>');
+    var input = document.getElementById("baseSearch"), results = document.getElementById("baseResults"), save = document.getElementById("baseSave");
+    function search() {
+      var q = input.value.trim(), mine = ++seq; selected = null; save.disabled = true;
+      if (!q) { results.textContent = "请输入地点名称"; return Promise.resolve(); }
+      results.textContent = "正在搜索地图…";
+      return GEO.searchPoi(q).then(function (r) {
+        if (mine !== seq || document.getElementById("baseSearch") !== input) return;
+        items = (r.items || []).filter(function (it) { return Number.isFinite(it.lat) && Number.isFinite(it.lng); });
+        results.innerHTML = items.length ? items.map(function (it, i) {
+          return '<button type="button" class="gs-i" data-base="' + i + '"><span class="gs-main"><span class="gs-n">' + U.esc(it.name) + '</span><span class="gs-sub">' + U.esc(it.addr || it.full || "") + '</span></span></button>';
+        }).join("") : '<div class="sub">没有找到地点，请补充城市或村镇名称后重试。</div>';
+      }).catch(function (err) { if (mine === seq && document.getElementById("baseSearch") === input) results.textContent = err.message || "搜索失败，请检查地图配置和网络"; });
+    }
+    input.addEventListener("input", function () { seq++; selected = null; save.disabled = true; clearTimeout(timer); timer = setTimeout(search, 320); });
+    input.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); clearTimeout(timer); search(); } });
+    document.getElementById("baseSearchGo").addEventListener("click", function () { clearTimeout(timer); return search(); });
+    results.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-base]"); if (!b) return;
+      selected = items[Number(b.getAttribute("data-base"))]; if (!selected) return;
+      document.getElementById("baseSelected").textContent = "已选择：" + selected.name + " · " + (selected.addr || ""); save.disabled = false;
+    });
+    save.addEventListener("click", function () {
+      if (save.disabled || !selected) return; save.disabled = true;
+      return w.DATA.saveBase(selected).then(function (base) {
+        GEO.setNear(base.lat, base.lng); U.closeSheet(); U.toast("队伍出发地已保存"); w.APP.render();
+      }).catch(function (err) { save.disabled = false; U.toast(err.message); });
+    });
+    return mask;
   }
 
   /* 现场贴高德 Key：代理写入并立即生效，前端不留 Key */

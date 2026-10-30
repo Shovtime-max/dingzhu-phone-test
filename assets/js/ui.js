@@ -308,10 +308,40 @@
       return w.DATA.setTeams(kind, id, selected).then(function () { closeSheet(); toast('队伍已保存'); if (done) done(); }).catch(function (err) { btn.disabled = false; toast(err.message); });
     });
   }
+  function bindProcessDelete(el, done) {
+    var timer = 0, x = 0, y = 0, suppressUntil = 0, busy = false;
+    function cancel() { clearTimeout(timer); timer = 0; }
+    function remove(b) {
+      var name = b && (b.getAttribute('data-process') || b.getAttribute('data-s'));
+      if (!name || busy) return;
+      busy = true; suppressUntil = Date.now() + 1000;
+      return w.DATA.removeProcessPreset(name).then(function () {
+        toast('已删除工序预设，历史订单不变'); if (done) done(name);
+      }).catch(function (err) { toast(err.message); }).then(function () { busy = false; });
+    }
+    el.addEventListener('pointerdown', function (e) {
+      cancel(); if (e.isPrimary === false || (e.button != null && e.button !== 0)) return;
+      var b = e.target.closest('[data-process], [data-s]'); if (!b) return;
+      x = e.clientX; y = e.clientY; timer = setTimeout(function () { timer = 0; remove(b); }, 550);
+    });
+    el.addEventListener('pointermove', function (e) { if (Math.hypot(e.clientX - x, e.clientY - y) > 8) cancel(); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (name) { el.addEventListener(name, cancel); });
+    el.addEventListener('contextmenu', function (e) { if (e.target.closest('[data-process], [data-s]')) e.preventDefault(); });
+    el.addEventListener('click', function (e) { if (Date.now() < suppressUntil) { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); } }, true);
+    el.addEventListener('keydown', function (e) { if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); return remove(e.target.closest('[data-process], [data-s]')); } });
+  }
   function processPresetSheet(done) {
-    sheet('<h3>工序预设</h3><div class="sub">每行一项，最多 30 项；已有订单的工序保持原记录</div>' +
+    sheet('<h3>工序预设</h3><div class="sub">长按胶囊可删除预设；也可每行编辑一项，最多 30 项。历史订单保持原记录。</div>' +
+      '<div class="tagrow mt12" id="processPresetChips"></div>' +
       '<textarea class="inline-input preset-editor" id="processPresetInput" rows="7" aria-label="工序预设">' + esc(w.DATA.processPresets().join('\n')) + '</textarea>' +
       '<button type="button" class="btn primary mt14" id="saveProcessPresets">保存预设</button>');
+    var chips = document.getElementById('processPresetChips');
+    function paint() { chips.innerHTML = w.DATA.processPresets().map(function (s) { return '<button type="button" class="tagchip" data-process="' + esc(s) + '">' + esc(s) + '</button>'; }).join(''); }
+    paint();
+    bindProcessDelete(chips, function (name) {
+      var input = document.getElementById('processPresetInput'); input.value = input.value.split(/[\n、，,]+/).filter(function (s) { return s.trim() !== name; }).join('\n');
+      paint(); if (done) done(name);
+    });
     var btn = document.getElementById('saveProcessPresets');
     btn.addEventListener('click', function () {
       if (btn.disabled) return;
@@ -321,7 +351,7 @@
   }
 
   w.UI = {
-    teamPicker: teamPicker, bindTeamPicker: bindTeamPicker, teamSheet: teamSheet, processPresetSheet: processPresetSheet,
+    teamPicker: teamPicker, bindTeamPicker: bindTeamPicker, teamSheet: teamSheet, processPresetSheet: processPresetSheet, bindProcessDelete: bindProcessDelete,
     icon: icon, SB: SB, n: n, yuan: yuan, pct: pct, esc: esc,
     statusPill: statusPill, toast: toast, sheet: sheet, closeSheet: closeSheet, STATUS: STATUS,
     bindSwipe: bindSwipe
