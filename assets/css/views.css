@@ -2266,8 +2266,8 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 
 /* Floating navigation, with room for the iPhone home indicator. */
 .tabbar {
-  left: 14px; right: 14px; bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  height: 66px; padding: 4px 5px; border: 1px solid var(--line);
+  left: 14px; right: 14px; bottom: 4px;
+  height: calc(66px + env(safe-area-inset-bottom, 0px)); padding: 4px 5px; border: 1px solid var(--line);
   border-radius: 22px; background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 8px 26px rgba(15, 30, 60, 0.16);
 }
@@ -2277,6 +2277,11 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .tabbar .tab .dot { top: 5px; margin-right: -17px; }
 @media (max-width: 639px), (hover: none) and (pointer: coarse) {
   .shell { --tabbar-h: calc(86px + env(safe-area-inset-bottom, 0px)); }
-  .tabbar { padding: 4px 5px; }
+  .tabbar { padding: 4px 5px calc(4px + env(safe-area-inset-bottom, 0px)); }
   .dockbar { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* Safe area stays inside the floating card, avoiding an empty strip below it. */
+.preset-editor { width: 100%; min-height: 180px; resize: vertical; font: inherit; }
+.team-picker .tagchip { min-height: 44px; }
+.form-label #btnProcessPresets { margin-left: auto; min-height: 32px; }

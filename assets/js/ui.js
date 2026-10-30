@@ -282,7 +282,46 @@
     return { closeAll: closeAll };
   }
 
+  function teamPicker(ids, id) {
+    return '<div class="tagrow team-picker" id="' + esc(id) + '">' + w.DATA.TEAMS.map(function (t) {
+      var on = ids.indexOf(t.id) >= 0;
+      return '<button type="button" class="tagchip' + (on ? ' on' : '') + '" data-team="' + esc(t.id) + '" aria-pressed="' + on + '">' + icon("check", 11) + esc(t.name) + '</button>';
+    }).join('') + '</div>';
+  }
+  function bindTeamPicker(el, ids) {
+    el.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-team]"); if (!b) return;
+      var id = b.getAttribute("data-team"), i = ids.indexOf(id);
+      if (i >= 0) ids.splice(i, 1); else ids.push(id);
+      b.classList.toggle("on", i < 0);
+      if (b.setAttribute) b.setAttribute("aria-pressed", String(i < 0));
+    });
+  }
+  function teamSheet(kind, id, ids, done) {
+    var selected = (ids || []).slice();
+    sheet('<h3>选择施工队伍</h3><div class="sub">可多选，至少选择一支队伍</div>' + teamPicker(selected, 'editTeams') + '<button type="button" class="btn primary mt14" id="saveTeams">保存队伍</button>');
+    bindTeamPicker(document.getElementById('editTeams'), selected);
+    var btn = document.getElementById('saveTeams');
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      return w.DATA.setTeams(kind, id, selected).then(function () { closeSheet(); toast('队伍已保存'); if (done) done(); }).catch(function (err) { btn.disabled = false; toast(err.message); });
+    });
+  }
+  function processPresetSheet(done) {
+    sheet('<h3>工序预设</h3><div class="sub">每行一项，最多 30 项；已有订单的工序保持原记录</div>' +
+      '<textarea class="inline-input preset-editor" id="processPresetInput" rows="7" aria-label="工序预设">' + esc(w.DATA.processPresets().join('\n')) + '</textarea>' +
+      '<button type="button" class="btn primary mt14" id="saveProcessPresets">保存预设</button>');
+    var btn = document.getElementById('saveProcessPresets');
+    btn.addEventListener('click', function () {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      return w.DATA.saveProcessPresets(document.getElementById('processPresetInput').value.split(/[\n、，,]+/)).then(function () { closeSheet(); toast('工序预设已保存'); if (done) done(); }).catch(function (err) { btn.disabled = false; toast(err.message); });
+    });
+  }
+
   w.UI = {
+    teamPicker: teamPicker, bindTeamPicker: bindTeamPicker, teamSheet: teamSheet, processPresetSheet: processPresetSheet,
     icon: icon, SB: SB, n: n, yuan: yuan, pct: pct, esc: esc,
     statusPill: statusPill, toast: toast, sheet: sheet, closeSheet: closeSheet, STATUS: STATUS,
     bindSwipe: bindSwipe

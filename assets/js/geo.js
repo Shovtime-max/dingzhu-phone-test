@@ -2,7 +2,7 @@
    地理能力（高德优先 · 本地坐标兜底）
    --------------------------------------------------------------------------
    三层：
-   1. 真实：页面 → 本地或云端代理 → 高德（Key 只在代理里）
+   1. 真实：页面 → 本地代理 127.0.0.1:4174 → 高德（Key 只在代理里）
    2. 兜底：本地村镇坐标表（SEED）+ 直线距离折算车程
    3. 判定：车程 ≤ 30 分钟算「顺路」，超过就是「不顺路」
 
@@ -11,8 +11,7 @@
 (function (w) {
   "use strict";
 
-  var REMOTE = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(w.location.hostname || "");
-  var EP = REMOTE ? "https://dingzhu-map.shovtimegogogo.workers.dev" : "http://127.0.0.1:4174";
+  var EP = "http://127.0.0.1:4174";
   var LS_KEY = "roofgeo.v1";
   var ROAD_KMH = 32;      /* 农村路况按 32km/h 折算 */
   var BASE_MIN = 4;       /* 起步时间（出车、停车、搬工具） */
@@ -148,24 +147,287 @@
     });
   }
 
+  /* 只有页面自己就跑在本机静态服务上时，那个 127.0.0.1:4174 代理才可能是我们的。
+     别人手机打开分享出去的地址时，127.0.0.1 指的是他自己，探它只会白等 1.2 秒
+     外加一条失败请求 —— 直接跳过，走直连。 */
+  var LOCAL_HOST = (function () {
+    var h = "";
+    try { h = (w.location && w.location.hostname) || ""; } catch (e) { h = ""; }
+    /* 取不到 hostname（测试环境 / 特殊壳）就当本机，保持原来的探测行为 */
+    return h === "" || h === "127.0.0.1" || h === "localhost" || h === "[::1]";
+  })();
+
   function health(force) {
     var now = Date.now();
     if (!force && status.checked && now - status.checked < 30000) {
       return Promise.resolve(status);
     }
-    return fetchJSON(EP + "/health", REMOTE ? 6000 : 1200)
+    if (!LOCAL_HOST) {
+      status = { checked: Date.now(), online: false, key: false, direct: !!directKey() };
+      return Promise.resolve(status);
+    }
+    return fetchJSON(EP + "/health", 1200)
       .then(function (j) {
-        status = { checked: Date.now(), online: !!j.ok, key: !!j.key };
+        status = { checked: Date.now(), online: !!j.ok, key: !!j.key, direct: false };
         return status;
       })
       .catch(function () {
-        status = { checked: Date.now(), online: false, key: false };
+        /* 连不上本机代理（分享出去的静态站就是这样）——看浏览器里有没有存过 Key */
+        status = { checked: Date.now(), online: false, key: false, direct: !!directKey() };
         return status;
       });
   }
 
   function mode() {
-    return status.online && status.key ? "amap" : "seed";
+    return (status.online && status.key) || directKey() ? "amap" : "seed";
+  }
+
+  /* ---------- 直连模式 ----------
+     页面被放到纯静态站点（GitHub Pages 之类）时，没有 127.0.0.1:4174 那个代理，
+     只能由浏览器直接问高德。高德 Web 服务接口带 Access-Control-Allow-Origin: *，
+     跨域没问题；代价是 Key 存在这台设备的 localStorage 里。
+     只要本机代理在，仍然优先走代理（Key 不进前端）。 */
+  var DIRECT_BASE = "https://restapi.amap.com/v3";
+  var LS_AMAP = "dingzhu.amapkey.v1";
+
+  function directKey() {
+    try { return String(localStorage.getItem(LS_AMAP) || "").trim(); } catch (e) { return ""; }
+  }
+  function saveDirectKey(k) {
+    var v = String(k || "").trim();
+    try { v ? localStorage.setItem(LS_AMAP, v) : localStorage.removeItem(LS_AMAP); } catch (e) { throw new Error("Key 未保存：浏览器存储不可用，请检查可用空间后重试"); }
+    mem = {}; status.checked = 0;
+    dCityCache = {}; dWxCache = {};
+    try { localStorage.removeItem(LS_KEY); } catch (e) {}
+    return v;
+  }
+  function amapDirect(path, params, ms) {
+    var k = directKey();
+    if (!k) return Promise.reject(new Error("没有 Key"));
+    var qs = Object.keys(params || {}).map(function (n) {
+      var v = params[n];
+      if (v === undefined || v === null || v === "") return "";
+      return n + "=" + encodeURIComponent(v);
+    }).filter(Boolean).join("&");
+    return fetchJSON(DIRECT_BASE + path + "?" + qs + "&key=" + encodeURIComponent(k), ms || 8000)
+      .then(function (j) {
+        if (!j || String(j.status) !== "1") {
+          throw new Error((j && j.info) || "高德返回的数据无效");
+        }
+        return j;
+      });
+  }
+
+  function dSplit(loc) {
+    var a = String(loc || "").split(",");
+    if (a.length !== 2) return null;
+    var lng = parseFloat(a[0]), lat = parseFloat(a[1]);
+    if (!a[0].trim() || !a[1].trim() || !isFinite(lng) || !isFinite(lat) || Math.abs(lng) > 180 || Math.abs(lat) > 90) return null;
+    return { lat: lat, lng: lng };
+  }
+  function dKindOf(name) {
+    var n = String(name || "");
+    if (/村|庄|屯|沟|岭|峪|洼|疃|寨|集$/.test(n)) return "村";
+    if (/镇$|乡$/.test(n)) return "镇";
+    if (/小区|花园|家园|苑|府|城$/.test(n)) return "小区";
+    return "地点";
+  }
+  function dVillageLike(name) {
+    return /村|庄|屯|沟|岭|峪|洼|疃|寨/.test(String(name || ""));
+  }
+  function byDist(a, b) {
+    var x = a.dist == null ? 1e9 : a.dist;
+    var y = b.dist == null ? 1e9 : b.dist;
+    return x - y;
+  }
+  /* 依次翻页，能提前停就停 */
+  function dPages(n, fn) {
+    var out = [];
+    return new Promise(function (resolve) {
+      var i = 0;
+      function step() {
+        if (i >= n) return resolve(out);
+        fn(i).then(function (r) {
+          out = out.concat((r && r.items) || []);
+          i++;
+          if (r && r.stop) return resolve(out);
+          step();
+        }, function () { resolve(out); });
+      }
+      step();
+    });
+  }
+
+  /* 附近村庄：高德「周边检索」单页只回一小撮，翻 3 页再按距离排、同村 150m 去重 */
+  function directNearby(lat, lng, radius) {
+    var r = radius || POI_RADIUS_M;
+    var seen = {};
+    var me = { lat: lat, lng: lng };
+    return dPages(3, function (i) {
+      return amapDirect("/place/around", {
+        location: Number(lng).toFixed(6) + "," + Number(lat).toFixed(6),
+        keywords: "村", radius: String(Math.round(r)),
+        sortrule: "distance", offset: "25", page: String(i + 1), extensions: "base"
+      }, 7000).then(function (j) {
+        var pois = j.pois || [], items = [];
+        pois.forEach(function (p) {
+          var loc = dSplit(p.location), name = String(p.name || "").trim();
+          if (!name || !loc) return;
+          var k = name + "|" + p.location;
+          if (seen[k]) return;
+          var dist = haversine(me, loc);
+          if (dist == null || dist > (r / 1000) * 1.1) return;
+          seen[k] = 1;
+          items.push({
+            name: name,
+            addr: [p.pname, p.cityname, p.adname, p.address].filter(Boolean).join(""),
+            kind: dKindOf(name), lat: loc.lat, lng: loc.lng, dist: Math.round(dist * 10) / 10
+          });
+        });
+        return { items: items, stop: pois.length < 5 };
+      });
+    }).then(function (items) {
+      var vills = items.filter(function (x) { return dVillageLike(x.name); });
+      var list = vills.length ? vills : items;
+      list.sort(byDist);
+      var kept = [], out = [];
+      list.forEach(function (x) {
+        var dup = kept.some(function (k) { return haversine({ lat: k[0], lng: k[1] }, x) < 0.15; });
+        if (dup) return;
+        kept.push([x.lat, x.lng]);
+        out.push(x);
+      });
+      return out.slice(0, 8);
+    });
+  }
+
+  /* 圆心落在哪个市：给联想做 city 偏置。不带它，同名村会被外省的顶到前面。 */
+  var dCityCache = {};
+  function directCityFor(lat, lng) {
+    var k = Number(lat).toFixed(2) + "," + Number(lng).toFixed(2);
+    if (dCityCache[k] !== undefined) return Promise.resolve(dCityCache[k]);
+    return amapDirect("/geocode/regeo", {
+      location: Number(lng).toFixed(6) + "," + Number(lat).toFixed(6), extensions: "base"
+    }, 6000).then(function (r) {
+      var comp = (r.regeocode && r.regeocode.addressComponent) || {};
+      var c = comp.city || comp.province || "";
+      if (typeof c !== "string") c = "";
+      dCityCache[k] = c;
+      return c;
+    }).catch(function () { dCityCache[k] = ""; return ""; });
+  }
+
+  /* 地名搜索：和高德输入提示同一口径 —— 城市只当优先（citylimit=false），
+     拿到坐标后按圆心算距离、150m 内算同一个点，再截到 radius 以内 */
+  function directPoi(q, lat, lng, radius) {
+    var me = { lat: lat, lng: lng };
+    var r = radius || POI_RADIUS_M;
+    return directCityFor(lat, lng).then(function (city) {
+      return amapDirect("/assistant/inputtips", {
+        keywords: q, city: city || "", citylimit: "false", datatype: "all"
+      }, 8000);
+    }).then(function (j) {
+      var items = [], kept = [];
+      (j.tips || []).forEach(function (t) {
+        var loc = dSplit(t.location), name = String(t.name || "").trim();
+        if (!name || !loc) return;
+        var dist = haversine(me, loc);
+        if (dist == null) return;
+        var dup = kept.some(function (k) { return haversine({ lat: k[0], lng: k[1] }, loc) < 0.15; });
+        if (dup) return;
+        kept.push([loc.lat, loc.lng]);
+        items.push({
+          name: name,
+          addr: String([t.district, t.address].filter(Boolean).join("")),
+          kind: dKindOf(name), lat: loc.lat, lng: loc.lng,
+          dist: Math.round(dist * 10) / 10
+        });
+      });
+      items.sort(byDist);
+      /* 附近没有同名村时放宽一次：给最近的几条，前端会标成「附近没有」 */
+      var near = items.filter(function (x) { return x.dist <= r / 1000; });
+      return near.length ? near : items.slice(0, 3);
+    });
+  }
+
+  /* 输入联想：assistant/inputtips，同样带城市偏置 */
+  function directSuggest(text) {
+    var p = nearPoint();
+    return directCityFor(p.lat, p.lng).then(function (city) {
+      return amapDirect("/assistant/inputtips", {
+        keywords: text, city: city || "", datatype: "all", citylimit: "false"
+      }, 3500);
+    }).then(function (j) {
+      var items = [], kept = [];
+      (j.tips || []).forEach(function (t) {
+        var loc = dSplit(t.location), name = String(t.name || "").trim();
+        if (!name || !loc) return;
+        var dup = kept.some(function (k) { return haversine({ lat: k[0], lng: k[1] }, loc) < 0.15; });
+        if (dup) return;
+        kept.push([loc.lat, loc.lng]);
+        items.push({
+          name: name, district: String(t.district || ""),
+          lat: loc.lat, lng: loc.lng
+        });
+      });
+      return items;
+    });
+  }
+
+  /* 天气：坐标 → regeo 拿 adcode → 该区县预报。同县只问一次。 */
+  var dWxCache = {}, dWxPending = {};
+  function directWeatherOne(lat, lng) {
+    var empty = { lat: lat, lng: lng, adcode: "", city: "", items: [] };
+    return amapDirect("/geocode/regeo", {
+      location: Number(lng).toFixed(6) + "," + Number(lat).toFixed(6), extensions: "base"
+    }, 8000).then(function (r) {
+      var comp = (r.regeocode && r.regeocode.addressComponent) || {};
+      var adcode = comp.adcode || "";
+      if (!adcode) return empty;
+      if (dWxCache[adcode] && Date.now() - dWxCache[adcode].time < 1800000) {
+        return { lat: lat, lng: lng, adcode: adcode, city: dWxCache[adcode].city, items: dWxCache[adcode].items };
+      }
+      if (!dWxPending[adcode]) dWxPending[adcode] = amapDirect("/weather/weatherInfo", { city: adcode, extensions: "all" }, 8000).then(function (j) {
+        var fc = (j.forecasts || [])[0] || {};
+        var items = [];
+        (fc.casts || []).forEach(function (c) {
+          var date = String(c.date || "").trim();
+          if (date.length !== 10) return;
+          var tmax = parseInt(c.daytemp, 10), tmin = parseInt(c.nighttemp, 10);
+          items.push({
+            date: date,
+            day: String(c.dayweather || "").trim(),
+            night: String(c.nightweather || "").trim(),
+            tmax: isFinite(tmax) ? tmax : null,
+            tmin: isFinite(tmin) ? tmin : null,
+            wind: String(c.daywind || "").trim(),
+            power: String(c.daypower || "").trim()
+          });
+        });
+        var city = fc.city || comp.district || comp.city || "";
+        if (items.length) dWxCache[adcode] = { city: city, items: items, time: Date.now() };
+        return { city: city, items: items };
+      }).then(function (result) { delete dWxPending[adcode]; return result; }, function (err) { delete dWxPending[adcode]; throw err; });
+      return dWxPending[adcode].then(function (result) {
+        return { lat: lat, lng: lng, adcode: adcode, city: result.city, items: result.items };
+      });
+    }).catch(function () { return empty; });
+  }
+
+  /* 车程：direction/driving 拿 duration（秒） */
+  function directRoute(a, b) {
+    return amapDirect("/direction/driving", {
+      origin: Number(a.lng).toFixed(6) + "," + Number(a.lat).toFixed(6),
+      destination: Number(b.lng).toFixed(6) + "," + Number(b.lat).toFixed(6),
+      extensions: "base", strategy: "0"
+    }, 5000).then(function (j) {
+      var path = ((j.route && j.route.paths) || [])[0];
+      if (!path || path.duration == null || !String(path.duration).trim() || !Number.isFinite(Number(path.duration)) || Number(path.duration) < 0 || (path.distance != null && (!String(path.distance).trim() || !Number.isFinite(Number(path.distance)) || Number(path.distance) < 0))) throw new Error("no route");
+      return {
+        min: Math.max(1, Math.round(Number(path.duration) / 60)),
+        km: path.distance != null ? Math.round(Number(path.distance) / 100) / 10 : null
+      };
+    });
   }
 
   /* ---------- 缓存（内存 + localStorage） ---------- */
@@ -238,17 +500,28 @@
       return { source: items.length ? "offline" : "none", items: items.slice(0, 8) };
     }
 
+    function shrink(items) {
+      items.sort(function (a, b) { return (a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist); });
+      if (!items.length) return offline();
+      var res = { source: "amap", items: items.slice(0, 8) };
+      mem[ck] = res;
+      return res;
+    }
+
     return health().then(function (h) {
-      if (!h.online || !h.key) return offline();
-      var url = EP + "/nearby?lat=" + p.lat + "&lng=" + p.lng + "&radius=" + r;
-      return fetchJSON(url, 7000).then(function (j) {
-        var items = (j.items || []).filter(function (it) { return it.lat != null && it.name; });
-        items.sort(function (a, b) { return (a.dist == null ? 1e9 : a.dist) - (b.dist == null ? 1e9 : b.dist); });
-        if (!items.length) return offline();
-        var res = { source: "amap", items: items.slice(0, 8) };
-        mem[ck] = res;
-        return res;
-      }).catch(offline);
+      if (h.online && h.key) {
+        var url = EP + "/nearby?lat=" + p.lat + "&lng=" + p.lng + "&radius=" + r;
+        return fetchJSON(url, 7000).then(function (j) {
+          return shrink((j.items || []).filter(function (it) { return it.lat != null && it.name; }));
+        }).catch(offline);
+      }
+      /* 没有本机代理（分享出去的静态站）→ 浏览器直连高德 */
+      if (directKey()) {
+        return directNearby(p.lat, p.lng, r)
+          .then(function (items) { return shrink(items.filter(function (it) { return it.lat != null && it.name; })); })
+          .catch(offline);
+      }
+      return offline();
     });
   }
 
@@ -285,18 +558,29 @@
     var lo = lng != null ? lng : p.lng;
     var ck = "wx:" + Number(la).toFixed(2) + "," + Number(lo).toFixed(2);
     if (mem[ck]) return Promise.resolve(mem[ck]);
-    return fetchJSON(EP + "/weather?lat=" + la + "&lng=" + lo, 9000)
-      .then(function (j) {
-        var res = {
-          source: j.source || "none",
-          city: j.city || "",
-          report: j.report || "",
-          items: (j.items || []).filter(function (x) { return x && x.date; })
-        };
-        if (res.items.length) mem[ck] = res;
-        return res;
-      })
-      .catch(function () { return { source: "none", city: "", report: "", items: [] }; });
+    function pack(j) {
+      var res = {
+        source: j.source || "none",
+        city: j.city || "",
+        report: j.report || "",
+        items: (j.items || []).filter(function (x) { return x && x.date; })
+      };
+      if (res.items.length) mem[ck] = res;
+      return res;
+    }
+    var none = { source: "none", city: "", report: "", items: [] };
+
+    return health().then(function (h) {
+      if (h.online && h.key) {
+        return fetchJSON(EP + "/weather?lat=" + la + "&lng=" + lo, 9000).then(pack).catch(function () { return none; });
+      }
+      if (directKey()) {
+        return directWeatherOne(la, lo).then(function (one) {
+          return pack({ source: one.items.length ? "amap" : "none", city: one.city, report: "", items: one.items });
+        }).catch(function () { return none; });
+      }
+      return none;
+    });
   }
 
   /* 批量：按每条活的施工坐标取天气。
@@ -316,8 +600,29 @@
     var ck = "wxm:" + uniq.map(function (u) { return u.k; }).join(";");
     if (mem[ck]) return Promise.resolve(mem[ck]);
 
-    var pts = uniq.map(function (u) { return u.lat + "," + u.lng; }).join(";");
-    return fetchJSON(EP + "/weather?pts=" + encodeURIComponent(pts), 15000)
+    function packPoints(points) {
+      var out = {};
+      (points || []).forEach(function (p) {
+        if (!p || !p.items || !p.items.length || p.lat == null) return;
+        var k = Number(p.lat).toFixed(2) + "," + Number(p.lng).toFixed(2);
+        var byDate = {};
+        p.items.forEach(function (w) { if (w && w.date) byDate[w.date] = w; });
+        out[k] = byDate;
+      });
+      if (Object.keys(out).length) mem[ck] = out;
+      return out;
+    }
+
+    return health().then(function (h) {
+      if (!(h.online && h.key) && directKey()) {
+        /* 直连：逐点问，但同区县只真正拉一次（directWeatherOne 里按 adcode 缓存） */
+        return Promise.all(uniq.map(function (u) {
+          return directWeatherOne(u.lat, u.lng).catch(function () { return null; });
+        })).then(function (list) { return packPoints(list.filter(Boolean)); });
+      }
+      if (!h.online || !h.key) return {};
+      var pts = uniq.map(function (u) { return u.lat + "," + u.lng; }).join(";");
+      return fetchJSON(EP + "/weather?pts=" + encodeURIComponent(pts), 15000)
       .then(function (j) {
         var out = {};
         (j.points || []).forEach(function (p) {
@@ -331,6 +636,7 @@
         return out;
       })
       .catch(function () { return {}; });
+    });
   }
   function lsAll() {
     try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch (e) { return {}; }
@@ -400,9 +706,31 @@
       return { items: items, source: res.source || "seed" };
     }
 
+    function mergeRemote(remoteItems, src) {
+      var items = local.slice();
+      remoteItems.forEach(function (it) {
+        if (it.lat == null || !it.name) return;
+        items.push({ name: it.name, district: it.district, lat: it.lat, lng: it.lng, source: "amap" });
+      });
+      var seen = {}, out = [];
+      items.forEach(function (it) {
+        var k = it.district + "|" + it.name;
+        if (seen[k]) return;
+        seen[k] = 1;
+        out.push(it);
+      });
+      return withFallback({ items: out.slice(0, 7), source: src });
+    }
+
     return health().then(function (h) {
-      if (!h.online || !h.key || !t) return withFallback({ items: local, source: "seed" });
-      return fetchJSON(EP + "/suggest?keywords=" + encodeURIComponent(text), REMOTE ? 8000 : 2600)
+      if (!t) return withFallback({ items: local, source: "seed" });
+      if (!h.online || !h.key) {
+        if (!directKey()) return withFallback({ items: local, source: "seed" });
+        return directSuggest(text)
+          .then(function (items) { return mergeRemote(items, "amap"); })
+          .catch(function () { return withFallback({ items: local, source: "seed" }); });
+      }
+      return fetchJSON(EP + "/suggest?keywords=" + encodeURIComponent(text), 2600)
         .then(function (j) {
           var items = local.slice();
           (j.items || []).forEach(function (it) {
@@ -454,10 +782,38 @@
     var ck = "poi:v4:" + lastNear.lat.toFixed(4) + "," + lastNear.lng.toFixed(4) + ":" + q;
     if (mem[ck]) return Promise.resolve(mem[ck]);
 
-    var url = EP + "/poi?keywords=" + encodeURIComponent(q) +
-      "&lat=" + lastNear.lat + "&lng=" + lastNear.lng + "&radius=" + POI_RADIUS_M;
+    function shape(items, source) {
+      var res = { source: source || "none", items: items || [] };
+      var near = res.items.filter(function (it) { return it.dist == null || it.dist <= NEAR_KM; });
+      if (!near.length && res.items.length) {
+        near = res.items.slice(0, 3);
+        res.widened = true;
+      }
+      res.items = near;
+      if (!res.items.length) {
+        res.items = localMatch(q);
+        res.source = res.items.length ? "offline" : "none";
+      }
+      if (res.source === "amap") mem[ck] = res;
+      return res;
+    }
 
-    return fetchJSON(url, 7000)
+    return health().then(function (h) {
+      if (!(h.online && h.key) && directKey()) {
+        return directPoi(q, lastNear.lat, lastNear.lng, POI_RADIUS_M)
+          .then(function (items) { return shape(items, "amap"); })
+          .catch(function () {
+            var items = localMatch(q);
+            return { source: items.length ? "offline" : "none", items: items };
+          });
+      }
+      if (!h.online || !h.key) {
+        var fallback = localMatch(q);
+        return { source: fallback.length ? "offline" : "none", items: fallback };
+      }
+      var url = EP + "/poi?keywords=" + encodeURIComponent(q) +
+        "&lat=" + lastNear.lat + "&lng=" + lastNear.lng + "&radius=" + POI_RADIUS_M;
+      return fetchJSON(url, 7000)
       .then(function (j) {
         var res = { source: j.source || "none", items: j.items || [] };
         /* 服务端已按半径收过一遍，这里再兜一层：远处同名村不占候选位。
@@ -480,6 +836,7 @@
         var items = localMatch(q);
         return { source: items.length ? "offline" : "none", items: items };
       });
+    });
   }
 
   /* ---------- 对外：两个点之间开车多久 ---------- */
@@ -492,14 +849,30 @@
     var cached = lsGet(key, 30 * 86400000);
     if (cached && cached.source === "amap") { mem[key] = cached; return Promise.resolve(cached); }
 
+    function estOut() {
+      return { min: estMinutes(km), km: km == null ? null : Math.round(km * 10) / 10, source: "est" };
+    }
+
     return health().then(function (h) {
+      if (!(h.online && h.key) && directKey()) {
+        return directRoute(a, b).then(function (r) {
+          var out = { min: r.min, km: r.km, source: "amap" };
+          mem[key] = out;
+          lsPut(key, out);
+          return out;
+        }).catch(function () {
+          var est = estOut();
+          mem[key] = est;
+          return est;
+        });
+      }
       if (!h.online || !h.key) {
-        var est = { min: estMinutes(km), km: km == null ? null : Math.round(km * 10) / 10, source: "est" };
+        var est = estOut();
         mem[key] = est;
         return est;
       }
       var url = EP + "/route?origin=" + a.lng + "," + a.lat + "&dest=" + b.lng + "," + b.lat;
-      return fetchJSON(url, REMOTE ? 8000 : 3200)
+      return fetchJSON(url, 3200)
         .then(function (j) {
           var out = (j.ok && j.minutes != null)
             ? { min: j.minutes, km: j.km, source: "amap" }
@@ -556,22 +929,53 @@
     return best;
   }
 
-  /* 在页面里直接配置高德 Key：交给本机代理写入并立即生效 */
+  /* 配置高德 Key：
+     · 本机代理在 → 交给代理写入（Key 不进前端，重启后仍在）
+     · 分享出去的静态站没有代理 → Key 存这台设备的 localStorage，前端直连高德 */
   function setKey(k) {
-    if (REMOTE) return Promise.reject(new Error("云端 Key 由管理员配置，无需在手机输入"));
-    return fetchJSON(EP + "/session", 1800).then(function (session) {
-      if (!session.ok || !session.token) throw new Error("请通过本地服务打开页面后配置 Key");
-      return fetchJSON(EP + "/key", 10000, {
-        method:"POST", headers:{"Content-Type":"application/json", "X-Geo-Token":session.token},
-        body:JSON.stringify({key:k || ""})
+    var val = String(k || "").trim();
+    return (LOCAL_HOST ? fetchJSON(EP + "/session", 1500) : Promise.reject(new Error("NO_PROXY")))
+      .catch(function () { throw new Error("NO_PROXY"); })   /* 连不上代理（静态站）就是直连 */
+      .then(function (session) {
+        if (!session || !session.ok || !session.token) throw new Error("NO_PROXY");
+        return fetchJSON(EP + "/key", 10000, {
+          method:"POST", headers:{"Content-Type":"application/json", "X-Geo-Token":session.token},
+          body:JSON.stringify({key: val})
+        });
+      })
+      .then(function (r) {
+        if (r && r.ok) {
+          mem = {}; status.checked = 0;
+          saveDirectKey("");            /* 代理模式不用本机 Key，清掉免得下次误走直连 */
+          return r;
+        }
+        throw new Error((r && r.hint) || "配置失败");
+      })
+      .catch(function (err) {
+        if (err && err.message !== "NO_PROXY") throw err;
+        /* 没有代理：直连模式 */
+        if (!val) {
+          saveDirectKey("");
+          return { ok: true, key: false, mode: "direct" };
+        }
+        return amapDirectWith(val, "/weather/weatherInfo", { city: "110000", extensions: "base" }, 8000)
+          .then(function () { return true; })
+          .catch(function (e) {
+            throw new Error("验证失败：" + ((e && e.message) || "请检查网络和 Key"));
+          }).then(function () { saveDirectKey(val); return { ok: true, key: true, mode: "direct" }; });
       });
-    }).then(function (r) {
-      if (r.ok) {
-        mem = {}; status.checked = 0;
-        try { localStorage.removeItem(LS_KEY); } catch (e) {}
-      }
-      return r;
-    });
+  }
+
+  /* 用「指定的」Key 试一次（验证输入框里的那个，而不是已保存的那个） */
+  function amapDirectWith(k, path, params, ms) {
+    var qs = Object.keys(params || {}).map(function (n) {
+      return n + "=" + encodeURIComponent(params[n]);
+    }).join("&");
+    return fetchJSON(DIRECT_BASE + path + "?" + qs + "&key=" + encodeURIComponent(k), ms || 8000)
+      .then(function (j) {
+        if (!j || String(j.status) !== "1") throw new Error((j && j.info) || "高德返回的数据无效");
+        return j;
+      });
   }
 
   /* ---------- 这天跑一趟的现实代价 ----------
@@ -612,12 +1016,13 @@
 
   w.GEO = {
     EP: EP,
-    remote: REMOTE,
     SEED: SEED,
     TOWN: TOWN,
     NEAR_MIN: NEAR_MIN,
     health: health,
     setKey: setKey,
+    directKey: directKey,
+    clearDirectKey: function () { return saveDirectKey(""); },
     mode: mode,
     status: function () { return status; },
     suggest: suggest,

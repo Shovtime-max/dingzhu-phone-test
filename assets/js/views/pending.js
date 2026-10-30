@@ -75,6 +75,7 @@
           ? '<div class="pd-paidline">已收 ¥' + U.n(paid) + " · 待收 ¥" + U.n(Math.max(0, p.budget - paid)) + "</div>"
           : "") +
 
+        '<div class="pd-tags"><button type="button" class="pill line" data-act="teams" data-id="' + U.esc(p.id) + '">' + U.icon("users", 12) + "队伍 · " + U.esc(D.teamNames(ord ? ord.teams : p.teams) || "选择队伍") + '</button></div>' +
         (tags.length
           ? '<div class="pd-tags">' + tags.map(function (t) {
               return '<span class="pd-tag">' + U.esc(t) + "</span>";
@@ -207,6 +208,7 @@
         var b = e.target.closest("button[data-act]");
         if (!b) return;
         var p = find(b.getAttribute("data-id"));
+        if (p && b.getAttribute("data-act") === "teams") { var linked = p.orderId ? D.byId(p.orderId) : null; U.teamSheet("pending", p.id, linked ? linked.teams : p.teams, function () { w.APP.render(); }); return; }
         if (!p) return;
         if (p.orderId) {
           var ord = D.byId(p.orderId);

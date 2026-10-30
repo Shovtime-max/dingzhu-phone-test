@@ -39,9 +39,28 @@
     }).join("");
   }
 
+  var activeHash = "", positions = {}, departure = null, orderReturn = "#/orders";
+  try { var savedReturn = w.sessionStorage.getItem("dingzhu.orderReturn"); if (/^#\/(schedule|orders|pending|analytics)(\?|$)/.test(savedReturn || "")) orderReturn = savedReturn; } catch (e) {}
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest("a[href]");
+    var href = a && a.getAttribute("href"), screen = document.getElementById("screen");
+    if (screen && href && href.indexOf("#/") === 0 && href !== activeHash) departure = {hash: activeHash, top: screen.scrollTop};
+  }, true);
   function render() {
     w.DATA.refreshToday();
+    var hash = w.location.hash || "#/schedule", currentScreen = document.getElementById("screen");
+    var leavingOrder = /^#\/order\//.test(activeHash), enteringOrder = /^#\/order\//.test(hash);
+    if (activeHash && currentScreen) positions[activeHash] = departure && departure.hash === activeHash ? departure.top : currentScreen.scrollTop;
+    departure = null;
+    if (enteringOrder && !leavingOrder && activeHash && /^#\/(schedule|orders|pending|analytics)(\?|$)/.test(activeHash)) {
+      orderReturn = activeHash;
+      try { w.sessionStorage.setItem("dingzhu.orderReturn", orderReturn); } catch (e) {}
+    }
+    var restore = positions[hash] !== undefined && (leavingOrder || activeHash === hash);
+    var restoreTop = restore ? positions[hash] : 0;
     var r = parse();
+    r.params.restoreScroll = restore;
+    activeHash = hash;
     var view = w.VIEWS[r.name] || w.VIEWS.schedule;
     var out;
 
@@ -69,6 +88,10 @@
     document.title = "鼎筑 · " + (TITLES[r.name] || "首页");
 
     if (out.mount) out.mount();
+    if (restore) {
+      fresh.scrollTop = restoreTop;
+      w.requestAnimationFrame(function () { if (document.getElementById("screen") === fresh) fresh.scrollTop = restoreTop; });
+    }
   }
 
   function settingsSheet() {
@@ -82,6 +105,8 @@
         "<div><b>队伍配置</b><span>一队 / 二队的人员组成</span></div>" +
         '<span class="go">' + U.icon("chevronRight", 16) + "</span>" +
       "</a>" +
+      '<button class="set-row" id="processRow" type="button" style="width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line-soft);font:inherit">' +
+        '<span class="si">' + U.icon("clipboard", 18) + '</span><div><b>工序预设</b><span>维护录单时可多选的常用工序</span></div><span class="go">' + U.icon("chevronRight", 16) + '</span></button>' +
       /* 回收站：待定池 / 订单里左滑删掉的记录都在这 */
       '<a class="set-row" href="#/trash" data-go="1">' +
         '<span class="si">' + U.icon("trash", 18) + "</span>" +
@@ -118,6 +143,7 @@
     );
     mask.addEventListener("click", function (e) {
       if (e.target.closest("[data-go]")) { U.closeSheet(); return; }
+      if (e.target.closest("#processRow")) { U.closeSheet(); U.processPresetSheet(); return; }
       if (e.target.closest("#geoRow")) { U.closeSheet(); keySheet(); return; }
       if (e.target.closest("#backupRow")) { U.closeSheet(); w.BACKUP.sheet(); return; }
       if (e.target.closest("#resetRow")) {
@@ -132,43 +158,28 @@
     w.GEO.health(true).then(function (h) {
       var el = document.getElementById("geoMode");
       if (!el) return;
-      if (!h.online && w.GEO.remote) el.innerHTML = '<i class="dot off"></i>地图服务暂时连不上 · 当前使用本地估算';
-      else if (!h.key && w.GEO.remote) el.innerHTML = '<i class="dot off"></i>云端地图未配置 · 请联系管理员';
-      else if (!h.online) el.innerHTML = '<i class="dot off"></i>代理未启动 · 搜索与车程都不可用';
-      else if (!h.key) el.innerHTML = '<i class="dot off"></i>未配高德 Key · 当前用 OSM 搜索 · 点此配置';
-      else el.innerHTML = '<i class="dot on"></i>高德已接通 · 地名搜索 + 真实车程';
+      if (h.online && h.key) el.innerHTML = '<i class="dot on"></i>高德已接通 · 地名搜索 + 真实车程';
+      else if (w.GEO.directKey && w.GEO.directKey()) el.innerHTML = '<i class="dot on"></i>直连高德 · Key 只在这台设备上 · 点此更换';
+      else if (h.online) el.innerHTML = '<i class="dot off"></i>未配高德 Key · 当前用 OSM 搜索 · 点此配置';
+      else el.innerHTML = '<i class="dot off"></i>未配 Key · 只有本地村镇库 · 点此配置';
     });
   }
 
   /* 现场贴高德 Key：代理写入并立即生效，前端不留 Key */
   function keySheet() {
-    if (w.GEO.remote) {
-      var cloudMask = U.sheet("<h3>地图服务</h3>" +
-        '<div class="sub">高德 Key 已由管理员保存在云端，使用者无需填写。地点搜索、真实车程和天气需要联网。</div>' +
-        '<div class="key-help" id="cloudMapStatus">正在检查连接…</div>' +
-        '<button class="btn primary mt14" id="btnTestMap">重新检测</button>');
-      function checkCloud() {
-        var el = cloudMask.querySelector("#cloudMapStatus");
-        var btn = cloudMask.querySelector("#btnTestMap");
-        btn.disabled = true;
-        el.textContent = "正在检查连接…";
-        w.GEO.health(true).then(function (h) {
-          btn.disabled = false;
-          el.textContent = !h.online ? "暂时连接不上地图服务。请检查网络，稍后重试；当前使用本地估算。" :
-            !h.key ? "云端尚未配置高德 Key，请联系管理员。" : "云端连接正常，已配置高德 Key。";
-        });
-      }
-      cloudMask.addEventListener("click", function (e) { if (e.target.closest("#btnTestMap")) checkCloud(); });
-      checkCloud();
-      return;
-    }
+    var st = w.GEO.status() || {};
+    var hasProxy = !!st.online;
+    var saved = "";
     var mask = U.sheet(
       "<h3>配置高德地图 Key</h3>" +
-      '<div class="sub">Key 只写进本机代理，不会出现在前端代码里</div>' +
-      '<input class="inline-input" id="inKey" type="text" autocomplete="off" ' +
+      '<div class="sub">' + (hasProxy
+        ? "Key 只写进本机代理，不会出现在前端代码里"
+        : "手机直接联网查询高德，无需云代理。Key 保存在本机，使用者可读取；换手机或清除网站数据后需重新填写") + "</div>" +
+      '<input class="inline-input" id="inKey" type="password" autocomplete="off" ' +
+        'value="' + U.esc(saved) + '" ' +
         'placeholder="粘贴 32 位 Web服务 Key" style="width:100%;margin-top:6px">' +
       '<div class="key-help">' +
-        "<b>怎么拿（免费）</b>" +
+        "<b>如何获取 Key（配额与授权以高德为准）</b>" +
         "<span>1. 打开 console.amap.com 注册并完成实名认证</span>" +
         "<span>2. 应用管理 → 新建应用 → 添加 Key</span>" +
         "<span>3. <b class=\"kh-key\">服务平台必须选「Web服务」</b></span>" +
@@ -182,7 +193,7 @@
         "判断方法——到控制台 Key 列表看「服务平台」这一列，必须是「Web服务」。</span>" +
       "</div>" +
       '<button class="btn primary mt14" id="btnSaveKey">保存并测试</button>' +
-      '<button class="btn ghost sm mt10" id="btnClearKey" style="width:100%">清除 Key（回到 OSM 搜索）</button>'
+      '<button class="btn ghost sm mt10" id="btnClearKey" style="width:100%">清除 Key（回到本地村镇库）</button>'
     );
 
     mask.addEventListener("click", function (e) {
@@ -205,18 +216,20 @@
           }
           w.GEO.health(true);
           U.closeSheet();
-          U.toast(r.key ? "高德已接通 · 地名搜索与车程全部切到高德" : "已清除 · 回到 OSM 搜索");
+          U.toast(r.key
+            ? (r.mode === "direct" ? "已保存 · 直连高德（只在这台设备）" : "高德已接通 · 地名搜索与车程全部切到高德")
+            : "已清除 · 回到本地村镇库");
           w.APP.render();
         })
         .catch(function (err) {
           btn.disabled = false;
           btn.textContent = old;
-          U.toast((err && err.message) || "连不上本地代理，先确认 geo-server.py 在跑");
+          U.toast((err && err.message) || "保存失败，检查 Key 是否正确");
         });
     });
   }
 
-  w.APP = { render: render, TABS: TABS };
+  w.APP = { render: render, TABS: TABS, orderBackHref: function () { return orderReturn; } };
 
   w.addEventListener("hashchange", render);
 

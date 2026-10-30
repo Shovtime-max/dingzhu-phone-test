@@ -525,7 +525,7 @@
 
   function scheduleFor(p, day, ampm, near) {
     if (p.orderId) { w.location.hash = "#/order/" + p.orderId; return; }
-    var picked = [], saving = false;
+    var picked = (p.teams || []).slice(), saving = false;
     var mask = U.sheet(
       "<h3>排进这个空档</h3>" +
       '<div class="sub">' + U.esc(p.title) + " · " + day + " " + ampm + "</div>" +
@@ -533,7 +533,7 @@
       '<div class="form-label" style="margin-bottom:7px">谁去干</div>' +
       '<div class="tagrow" id="pickTeam">' +
         D.TEAMS.map(function (t) {
-          return '<button class="tagchip" data-t="' + t.id + '">' + U.icon("check", 11) + t.name + "</button>";
+          return '<button class="tagchip' + (picked.indexOf(t.id) >= 0 ? ' on' : '') + '" data-t="' + t.id + '">' + U.icon("check", 11) + t.name + "</button>";
         }).join("") +
       "</div>" +
       '<div class="t-xs mut mt10" style="line-height:1.6">可以只选一支，也可以几支一起上。</div>' +
@@ -645,8 +645,9 @@
   }
 
   w.VIEWS = w.VIEWS || {};
-  w.VIEWS.schedule = function () {
-    state.filter = pendingFilter || "全部";
+  w.VIEWS.schedule = function (params) {
+    var restoringScroll = !!(params && params.restoreScroll);
+    if (!restoringScroll || pendingFilter) state.filter = pendingFilter || "全部";
     pendingFilter = null;
 
     var bar =
@@ -975,14 +976,14 @@
       logo.addEventListener("pointercancel", cancel);
       logo.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 
-      if (state.view === "list") {
+      if (state.view === "list" && !restoringScroll) {
         w.requestAnimationFrame(function () { scrollToToday(false); });
       }
       loadJobWeather();
       loadCalWeather();
       if (forPending()) setTimeout(upgradeNear, 260);
       /* mask 与字体落定后高度会变，再定位一次 */
-      if (state.view === "list") setTimeout(function () { scrollToToday(false); }, 200);
+      if (state.view === "list" && !restoringScroll) setTimeout(function () { scrollToToday(false); }, 200);
       if (resizeHandler) w.removeEventListener("resize", resizeHandler);
       resizeHandler = function () {};
       w.addEventListener("resize", resizeHandler);

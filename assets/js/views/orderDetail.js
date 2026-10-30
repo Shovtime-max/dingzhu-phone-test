@@ -73,7 +73,7 @@
   w.VIEWS.order = function (params) {
     var o = D.byId(params.id);
     if (!o) return {
-      bar:'<div class="navline"><a class="back" href="#/orders" aria-label="返回">' + U.icon("arrowLeft", 18) + '</a><div class="navline-title">工单详情</div></div>',
+      bar:'<div class="navline"><a class="back" href="' + U.esc(w.APP && w.APP.orderBackHref ? w.APP.orderBackHref() : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + '</a><div class="navline-title">工单详情</div></div>',
       body:'<div class="empty"><h4>订单不存在</h4><p>请返回订单列表核对单号</p></div>', tab:"orders"
     };
     var mediaEntry = w.MEDIA && w.MEDIA.entry(o.id);
@@ -121,7 +121,7 @@
 
     var bar =
       '<div class="navline">' +
-        '<a class="back" href="#/orders" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
+        '<a class="back" href="' + U.esc(w.APP && w.APP.orderBackHref ? w.APP.orderBackHref() : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
         '<div class="col navline-mid"><div class="navline-title">工单详情</div>' +
         '<div class="navline-sub">' + U.esc(o.id) + " · " + U.esc(o.town + o.village) + "</div></div>" +
         U.statusPill(st) +
@@ -177,7 +177,7 @@
             (o.mode === "大包" ? "（包工包料）"
               : o.mode === "人工" ? "（纯人工）"
               : "（待现场量尺确认）") + "</span></div>" +
-        '<div class="rowline"><span class="k">施工班组</span><span class="v">' + D.teamNames(o.teams) + "</span></div>" +
+        '<div class="rowline"><span class="k">施工班组</span><span class="v">' + U.esc(D.teamNames(o.teams)) + ' <button type="button" class="pill xs line" id="btnEditTeams">选择队伍</button></span></div>' +
         '<div class="rowline"><span class="k">档期</span><span class="v">' +
           (o.doneAt ? "完工 " + (o.done || String(o.doneAt).split(" ")[0])
             : o.startedAt ? "开工 " + (o.start || String(o.startedAt).split(" ")[0])
@@ -461,6 +461,8 @@
         if (!w.navigator.clipboard || !w.navigator.clipboard.writeText) { U.toast("当前设备无法自动复制，请手动联系业主"); return; }
         w.navigator.clipboard.writeText(msg).then(function () { U.toast("催款内容已复制，请自行发送"); }).catch(function () { U.toast("复制失败，请手动联系业主"); });
       });
+      var teamsBtn = document.getElementById("btnEditTeams");
+      if (teamsBtn) teamsBtn.addEventListener("click", function () { U.teamSheet("order", o.id, o.teams, refresh); });
       var edit = document.getElementById("btnEditSpec");
       if (edit) edit.addEventListener("click", function () {
         U.sheet('<h3>修改规格与报价</h3><div class="sub">已收金额 ¥' + U.n(o.paid) + '，报价不得低于已收金额</div>' +

@@ -5,7 +5,7 @@
   "use strict";
   var D = w.DATA, U = w.UI;
 
-  var SCOPES = ["换瓦", "脊瓦加固", "红瓦换新", "防水卷材", "天沟检修", "拆除清运"];
+  var SCOPES = D.processPresets();
   var MODELS = [
     { k: "pending", t: "待定", desc: "默认状态 · 待现场量尺看活确认后选定" },
     { k: "full", t: "双包", desc: "包工包料 · 含彩钢瓦、脊瓦、辅料与清运" },
@@ -14,12 +14,12 @@
 
   var st = {
     main: 4, wing: 1, model: "pending", scope: [], custom: "",
-    price: "", geo: null, decision: null
+    teams: [], price: "", geo: null, decision: null
   };
   function resetForm() {
     st.main = 4; st.wing = 1;
     st.model = "pending"; st.scope = []; st.custom = "";
-    st.price = ""; st.geo = null; st.decision = null;
+    st.price = ""; st.geo = null; st.decision = null; st.teams = [];
   }
 
   /* 材料口径 → 订单字段（档期条目上显示「间 + 大包/人工」） */
@@ -55,11 +55,14 @@
   w.VIEWS = w.VIEWS || {};
   w.VIEWS.create = function () {
     var src = forPending();
+    SCOPES = D.processPresets();
+    if (!st.teams.length) st.teams = D.TEAMS.length ? [D.TEAMS[0].id] : [];
     if (src) {
       st.main = Number(src.main != null ? src.main : src.rooms) || 1;
       st.wing = Number(src.wing) || 0;
       st.model = (src.mode === "大包" || src.mode === "双包") ? "full"
                : (src.mode === "人工" || src.mode === "清工") ? "labor" : "pending";
+      st.teams = (src.teams && src.teams.length ? src.teams : D.TEAMS.slice(0, 1).map(function (t) { return t.id; })).slice();
       var tg = (src.tags || []).filter(Boolean);
       st.scope = tg.filter(function (x) { return SCOPES.indexOf(x) >= 0; });
       st.custom = tg.filter(function (x) { return SCOPES.indexOf(x) < 0; }).join(" ");
@@ -129,16 +132,17 @@
             '<button class="stp-btn" id="incWing">' + U.icon("plus", 15) + "</button></div>" +
           "</div>" +
         "</div>" +
-        '<div class="form-group"><div class="form-label">工序<span class="t-xs mut" style="text-transform:none;letter-spacing:0">可多选，也可在下面自定义追加</span></div>' +
+        '<div class="form-group"><div class="form-label">工序<button type="button" class="pill xs line" id="btnProcessPresets">管理预设</button><span class="t-xs mut" style="text-transform:none;letter-spacing:0">可多选，也可在下面自定义追加</span></div>' +
           '<div class="tagrow" id="scopeRow">' +
             SCOPES.map(function (s) {
-              return '<button class="tagchip' + (st.scope.indexOf(s) >= 0 ? " on" : "") + '" data-s="' + s + '">' +
-                U.icon("check", 11) + s + "</button>";
+              return '<button class="tagchip' + (st.scope.indexOf(s) >= 0 ? " on" : "") + '" data-s="' + U.esc(s) + '">' +
+                U.icon("check", 11) + U.esc(s) + "</button>";
             }).join("") +
           "</div>" +
           '<input class="inline-input" id="inScope" type="text" autocomplete="off" value="' + U.esc(st.custom) + '" ' +
             'placeholder="自定义工序，多个用空格或顿号分隔" style="width:100%;margin-top:8px">' +
         "</div>" +
+        '<div class="form-group"><div class="form-label">施工队伍<span class="t-xs mut">可多选</span></div>' + U.teamPicker(st.teams, "createTeams") + '</div>' +
         '<div class="form-group"><div class="form-label">材料口径</div>' +
           '<div class="tri" id="modelTri">' +
             MODELS.map(function (m) {
@@ -395,6 +399,16 @@
       bind("decMain", "incMain", "main", 1);
       bind("decWing", "incWing", "wing", 0);
 
+      U.bindTeamPicker(document.getElementById("createTeams"), st.teams);
+      document.getElementById("btnProcessPresets").addEventListener("click", function () {
+        U.processPresetSheet(function () {
+          SCOPES = D.processPresets();
+          var choices = SCOPES.concat(st.scope).filter(function (v, i, a) { return a.indexOf(v) === i; });
+          document.getElementById("scopeRow").innerHTML = choices.map(function (v) {
+            return '<button type="button" class="tagchip' + (st.scope.indexOf(v) >= 0 ? ' on' : '') + '" data-s="' + U.esc(v) + '">' + U.icon("check", 11) + U.esc(v) + '</button>';
+          }).join("");
+        });
+      });
       /* 工序多选（预设词条） */
       document.getElementById("scopeRow").addEventListener("click", function (e) {
         var b = e.target.closest(".tagchip");
@@ -454,6 +468,7 @@
         } catch (err) { U.toast(err.message); return null; }
         if (!owner) { U.toast("先填业主姓名"); return null; }
         if (!addr) { U.toast("先填施工位置"); return null; }
+        if (!st.teams.length) { U.toast("请至少选择一支施工队伍"); return null; }
         return { owner: owner, addr: addr, phone: phone, price: price, scope: scope, note: note, place: placeOf(addr) };
       }
 
@@ -526,7 +541,7 @@
           rooms: st.main + st.wing,
           budget: f.price, paid: 0, flows: [],
           main: st.main, wing: st.wing, mode: modeText(), tags: f.scope,
-          teams: ["t1"], geo: geoOf(f), note: f.note,
+          teams: st.teams.slice(), geo: geoOf(f), note: f.note,
           stage: "待量尺",
           days: 0,
           blocker: "档期未定 · 待与业主确认上工日子",
@@ -555,7 +570,7 @@
         var o = {
           owner:f.owner, title:f.owner, town:f.place.town, village:f.place.village,
           addr:f.addr, phone:f.phone, main:st.main, wing:st.wing, mode:modeText(),
-          quote:f.price, paid:0, teams:["t1"], geo:geoOf(f),
+          quote:f.price, paid:0, teams:st.teams.slice(), geo:geoOf(f),
           scheduledAt:null, startedAt:null, doneAt:null, start:"", done:"",
           tags:f.scope, note:f.note || "录单生成", flows:[]
         };

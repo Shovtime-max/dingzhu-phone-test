@@ -483,6 +483,7 @@
      · 新增存 localStorage，刷新后还在；「清空新增」可回到原始演示状态
      ========================================================================== */
   var BACKUP_BASELINE = JSON.stringify({orders:ORDERS, pending:PENDING, teams:BASE_TEAMS, schedule:DETAIL_10, base:BASE});
+  var DEFAULT_PROCESSES = ["换瓦", "脊瓦加固", "红瓦换新", "防水卷材", "天沟检修", "拆除清运"];
   var LS_KEY = "dingzhu.adds.v1";
   var ADDED = emptyAdds(), lastRaw = null, storageError = "";
   // Legacy files in this snapshot belong to 2026; never reinterpret them using the opening year.
@@ -499,7 +500,7 @@
     return {
       orders: [], pending: [], slots: {}, moved: {}, patches: {}, orderPatches: {}, trash: [],
       /* 队伍：新增的整条记录 / 对内置队的改动 / 被删掉的内置队 id */
-      teams: [], teamPatches: {}, teamDeleted: [],
+      teams: [], teamPatches: {}, teamDeleted: [], processPresets: null,
       revision: 0
     };
   }
@@ -522,6 +523,9 @@
       if (a[k] === undefined) a[k] = {};
       if (!safeMap(a[k])) throw new Error("本地补丁格式异常，已停止写入");
     });
+    if (a.processPresets !== undefined && a.processPresets !== null &&
+        (!Array.isArray(a.processPresets) || a.processPresets.length > 30 || !a.processPresets.every(function (x) { return typeof x === "string" && x.trim() && x.length <= 20; })))
+      throw new Error("工序预设格式不正确，已停止写入");
     /* 队伍：新增记录必须自带 id/name/members；改动与删除只校验形状 */
     if (a.teams === undefined) a.teams = [];
     if (!Array.isArray(a.teams) || !a.teams.every(function (t) {
@@ -575,6 +579,7 @@
         throw new Error("本地订单缺少必要字段，已停止写入");
     });
     Object.keys(a.orderPatches).forEach(function (id) { checkFields(a.orderPatches[id]); });
+    Object.keys(a.patches).forEach(function (id) { checkFields(a.patches[id]); });
     return a;
   }
   function parseMoney(value, positive) {
@@ -796,8 +801,8 @@
     });
     Object.keys(a.patches).forEach(function (id) {
       var p = pendingById(id); if (!p) return;
-      ["stage", "days", "blocker", "orderId", "mode", "starred"].forEach(function (k) {
-        if (a.patches[id][k] !== undefined) p[k] = a.patches[id][k];
+      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams"].forEach(function (k) {
+        if (a.patches[id][k] !== undefined) p[k] = copy(a.patches[id][k]);
       });
     });
     Object.keys(a.slots).forEach(function (key) {
@@ -1236,7 +1241,8 @@
   }
   /* 这一队被多少单引用（删除前要拦） */
   function teamUsage(id) {
-    return ORDERS.filter(function (o) { return (o.teams || []).indexOf(id) >= 0; }).length;
+    return ORDERS.filter(function (o) { return (o.teams || []).indexOf(id) >= 0; }).length +
+      PENDING.filter(function (p) { return !p.orderId && (p.teams || []).indexOf(id) >= 0; }).length;
   }
   function cleanMembers(arr) {
     return (Array.isArray(arr) ? arr : []).map(function (m) {
@@ -1317,9 +1323,38 @@
     return commit(function (next) {
       if (!pendingById(p.id)) throw new Error("线索不存在");
       var patch = Object.assign({}, next.patches[p.id]);
-      ["stage", "days", "blocker", "orderId", "mode", "starred"].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
+      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams"].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
       next.patches[p.id] = patch; return p.id;
     }).then(pendingById);
+  }
+  function processPresets() { return (ADDED.processPresets || DEFAULT_PROCESSES).slice(); }
+  function saveProcessPresets(list) {
+    return commit(function (next) {
+      if (!Array.isArray(list)) throw new Error("请填写工序名称");
+      var clean = list.map(function (x) { return String(x).trim(); }).filter(Boolean);
+      clean = clean.filter(function (x, i) { return clean.indexOf(x) === i; });
+      if (!clean.length || clean.length > 30 || clean.some(function (x) { return x.length > 20; })) throw new Error("请设置 1 至 30 项工序，每项不超过 20 字");
+      next.processPresets = clean;
+      return clean.slice();
+    });
+  }
+  function checkedTeams(ids) {
+    if (!Array.isArray(ids) || !ids.length || ids.some(function (id) { return !teamById(id); })) throw new Error("请至少选择一支有效队伍");
+    return ids.filter(function (id, i) { return ids.indexOf(id) === i; });
+  }
+  function setTeams(kind, id, ids) {
+    return commit(function (next) {
+      var selected = checkedTeams(ids);
+      if (kind === "order") {
+        var o = byId(id); if (!o) throw new Error("订单不存在");
+        next.orderPatches[id] = Object.assign(orderSnapshot(o), {teams: selected});
+      } else if (kind === "pending") {
+        var p = pendingById(id); if (!p) throw new Error("线索不存在");
+        next.patches[id] = Object.assign({}, next.patches[id], {teams: selected});
+        if (p.orderId && byId(p.orderId)) next.orderPatches[p.orderId] = Object.assign(orderSnapshot(byId(p.orderId)), {teams: selected.slice()});
+      } else throw new Error("无效的记录类型");
+      return selected;
+    });
   }
   function orderSnapshot(o) {
     var out = {};
@@ -1384,9 +1419,10 @@
   function resetAdds() {
     // Commit an empty snapshot first. The only UI caller reloads immediately after success.
     return commit(function (next) {
-      var clean = emptyAdds(), profile = next.profile, mediaSet = next.mediaSet, seq = idSeq();
+      var clean = emptyAdds(), profile = next.profile, mediaSet = next.mediaSet, presets = next.processPresets, seq = idSeq();
       Object.keys(clean).forEach(function (k) { next[k] = clean[k]; });
       next.idSeq = seq;
+      next.processPresets = presets;
       if (profile) next.profile = profile;
       if (mediaSet) next.mediaSet = mediaSet;
       return 0;
@@ -1572,6 +1608,9 @@
   }
 
   w.DATA = {
+    processPresets: processPresets,
+    saveProcessPresets: saveProcessPresets,
+    setTeams: setTeams,
     BASE: BASE,
     TEAMS: TEAMS,
     teamById: teamById,
