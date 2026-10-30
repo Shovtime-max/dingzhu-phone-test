@@ -12,7 +12,7 @@
     catch (e) { return "list"; }
   }
   var state = { filter: "全部", month: w.DATA.TODAY.key, view: savedView() };
-  var calWx = {};        /* "2026-10-28" → 出发地当天的天气（月历格子用） */
+  var calWxState = "正在获取天气", calWx = {};        /* "2026-10-28" → 出发地当天的天气（月历格子用） */
   var CAL_WEEK = ["日", "一", "二", "三", "四", "五", "六"];
   var resizeHandler = null;
   var pressTimer = null;
@@ -149,10 +149,21 @@
     return t.indexOf("晴") >= 0 ? U.icon("sun", 12) : U.icon("cloud", 12);
   }
 
-  /* 日期行右侧：农历 + 真实天气。没有预报的日子只留农历，不编天气 */
-  /* 日期行右侧只留农历：天气按每条活的施工地点分别显示，不再给整行一个总天气 */
+  /* 日期区域统一显示出发地天气，空档日也显示；缺少预报时如实提示。 */
   function metaHtml(d) {
-    return d.lunar ? '<span class="ag-meta">' + U.esc(d.lunar) + "</span>" : "";
+    var iso = d.y + "-" + d.date.replace(".", "-"), wx = calWx[iso];
+    var lunar = d.lunar ? '<span class="ag-meta">' + U.esc(d.lunar) + "</span>" : "";
+    var text, icon = "", detail = "队伍出发地天气";
+    if (wx && wx.day && iso >= D.TODAY.iso) {
+      text = wx.day + (wx.tmin != null && wx.tmax != null ? " " + wx.tmin + "~" + wx.tmax + "℃" : "");
+      icon = weatherIcon(wx.day);
+      detail += (wx.night ? "；夜间 " + wx.night : "") + (wx.wind ? "；" + wx.wind + "风 " + (wx.power || "") + "级" : "");
+    } else if (iso < D.TODAY.iso) text = "无历史天气";
+    else {
+      var delta = Math.round((new Date(d.y, d.m - 1, d.day) - new Date(D.TODAY.y, D.TODAY.m - 1, D.TODAY.d)) / 86400000);
+      text = delta > 3 ? "暂无预报" : calWxState;
+    }
+    return lunar + '<span class="ag-date-wx' + (icon ? " available" : "") + '" title="' + U.esc(detail) + '">' + icon + U.esc(text) + '</span>';
   }
 
   /* 某一单在当天的天气（按它的施工坐标取，取不到就不显示） */
@@ -699,7 +710,11 @@
         : '<div class="mt12" id="listWrap">' + listHtml() + "</div>") +
       '<div style="height:8px"></div>';
 
+    var deferredRefresh = 0;
     function refresh() {
+      if (document.body && document.body.classList.contains("is-dragging")) {
+        clearTimeout(deferredRefresh); deferredRefresh = setTimeout(refresh, 200); return;
+      }
       var lw = document.getElementById("listWrap");
       if (lw) lw.innerHTML = listHtml();
       var cw = document.getElementById("calWrap");
@@ -747,17 +762,24 @@
       });
     }
 
-    /* 出发地天气：月历格子右上角那个小图标用（队伍每天从家出发，一个地点就够） */
+    /* 所有日期共用一次出发地查询，不按空档日重复请求。 */
     function loadCalWeather() {
+      var host = document.getElementById("screen");
       var g = (w.GEO && w.GEO.baseGeo && w.GEO.baseGeo()) || D.BASE;
-      if (!g || g.lat == null || g.lng == null) return;
+      if (!g || g.lat == null || g.lng == null) { calWxState = "请设置出发地"; refresh(); return; }
+      calWxState = "正在获取天气";
       w.GEO.weather(g.lat, g.lng).then(function (res) {
-        if (!res || !res.items || !res.items.length) return;
+        if (document.getElementById("screen") !== host) return;
         var map = {};
-        res.items.forEach(function (it) { map[it.date] = it; });
+        ((res && res.items) || []).forEach(function (it) { if (it.date && it.day) map[it.date] = it; });
         calWx = map;
-        if (state.view === "month") refresh();
-      }).catch(function () {});
+        var h = GEO.status(), hasKey = (h.online && h.key) || (GEO.directKey && GEO.directKey());
+        calWxState = !hasKey ? "请配置地图 Key" : w.navigator && w.navigator.onLine === false ? "离线，暂无天气" : "天气暂不可用";
+        refresh();
+      }).catch(function () {
+        if (document.getElementById("screen") !== host) return;
+        calWxState = "天气暂不可用"; refresh();
+      });
     }
 
     function mount() {

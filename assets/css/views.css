@@ -2291,3 +2291,9 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .form-label #btnProcessPresets { margin-left: auto; min-height: 32px; }
 
 @media (prefers-reduced-motion: reduce) { .drag-ghost { transition: none; } }
+
+/* Weather has its own compact line in each date heading, preserving narrow-phone labels. */
+.ag-day { flex-wrap: wrap; }
+.ag-date-wx { order: 2; flex: 0 0 100%; min-width: 0; display: flex; align-items: center; gap: 4px; padding-left: 11px; color: var(--ink-3); font-size: var(--fs-aux); font-weight: 600; line-height: 1.35; }
+.ag-date-wx.available { color: var(--ink-2); }
+.ag-date-wx svg { flex: none; }

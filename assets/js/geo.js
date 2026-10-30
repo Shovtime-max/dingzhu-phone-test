@@ -547,7 +547,7 @@
     return selfVillages().concat(SEED);
   }
 
-  var mem = {};
+  var wxCachedAt = {}, mem = {};
 
   /* ---------- 天气：按坐标取区县预报 ----------
      走代理的 /weather（内部先反查 adcode 再取高德预报）。高德只给未来 4 天，
@@ -557,7 +557,7 @@
     var la = lat != null ? lat : p.lat;
     var lo = lng != null ? lng : p.lng;
     var ck = "wx:" + Number(la).toFixed(2) + "," + Number(lo).toFixed(2);
-    if (mem[ck]) return Promise.resolve(mem[ck]);
+    if (mem[ck] && Date.now() - (wxCachedAt[ck] || 0) < 1800000) return Promise.resolve(mem[ck]);
     function pack(j) {
       var res = {
         source: j.source || "none",
@@ -565,7 +565,7 @@
         report: j.report || "",
         items: (j.items || []).filter(function (x) { return x && x.date; })
       };
-      if (res.items.length) mem[ck] = res;
+      if (res.items.length) { mem[ck] = res; wxCachedAt[ck] = Date.now(); }
       return res;
     }
     var none = { source: "none", city: "", report: "", items: [] };
@@ -598,7 +598,7 @@
     if (!uniq.length) return Promise.resolve({});
 
     var ck = "wxm:" + uniq.map(function (u) { return u.k; }).join(";");
-    if (mem[ck]) return Promise.resolve(mem[ck]);
+    if (mem[ck] && Date.now() - (wxCachedAt[ck] || 0) < 1800000) return Promise.resolve(mem[ck]);
 
     function packPoints(points) {
       var out = {};
@@ -609,7 +609,7 @@
         p.items.forEach(function (w) { if (w && w.date) byDate[w.date] = w; });
         out[k] = byDate;
       });
-      if (Object.keys(out).length) mem[ck] = out;
+      if (Object.keys(out).length) { mem[ck] = out; wxCachedAt[ck] = Date.now(); }
       return out;
     }
 
@@ -632,7 +632,7 @@
           p.items.forEach(function (w) { if (w && w.date) byDate[w.date] = w; });
           out[k] = byDate;
         });
-        if (Object.keys(out).length) mem[ck] = out;
+        if (Object.keys(out).length) { mem[ck] = out; wxCachedAt[ck] = Date.now(); }
         return out;
       })
       .catch(function () { return {}; });

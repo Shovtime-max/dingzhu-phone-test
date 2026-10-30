@@ -180,7 +180,7 @@ async function create(x,price='3000'){x.mount('create');x.fill();x.el.inPrice.va
    assert(v.body.includes('id="pdList"'));
    assert(v.body.includes('补充信息并推排期'));
  });
- await test('天气按每条活的施工地点显示，日期行不再给总天气',async()=>{
+ await test('订单保留施工地天气，日期区域独立显示出发地天气',async()=>{
    let x=env();
    x.ctx.fetch=async url=>{
      if(String(url).includes('/weather?pts=')){
@@ -204,7 +204,8 @@ async function create(x,price='3000'){x.mount('create');x.fill();x.el.inPrice.va
    assert(html.includes('晴')&&html.includes('9~22℃'),'第一单用自己村子的天气');
    assert(html.includes('小雨')&&html.includes('6~15℃'),'第二单用另一个村子的天气');
    let metas=html.match(/ag-meta">[^<]*</g)||[];
-   assert(metas.every(m=>!m.includes('℃')),'日期行不该再挂总天气');
+   assert(metas.every(m=>!m.includes('℃')),'农历独立于天气');
+   assert(html.includes('ag-date-wx'),'日期区域应有独立天气位置');
  });
  await test('天气批量接口按坐标去重请求',async()=>{
    let x=env(),hits=[];
