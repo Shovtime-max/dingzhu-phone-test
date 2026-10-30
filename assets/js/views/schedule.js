@@ -181,7 +181,8 @@
     var body = "";
     if (has) {
       body = slot.items.map(function (it) {
-        var tag = it.oid ? "a" : "div";
+        var tag = "div";
+        var openTag = it.oid ? "a" : "div";
         var href = it.oid ? ' href="#/order/' + it.oid + '"' : "";
         var m = it.oid ? jobMeta(it) : null;
         var st = m ? '<span class="ag-st ' + m.key + '">' + m.text + "</span>" : "";
@@ -189,8 +190,10 @@
         var frozen = !!m && (m.key === "done" || m.key === "settled");
         var dragable = it.oid && !frozen;
         return (
-          "<" + tag + ' class="ag-item' + (frozen ? " frozen" : "") + '"' + href +
+          "<" + tag + ' class="ag-item' + (frozen ? " frozen" : "") + '"' +
+            (it.oid ? ' data-order="' + U.esc(it.oid) + '"' : "") +
             (dragable ? ' data-drag="1"' : "") + ">" +
+            '<' + openTag + ' class="ag-open"' + href + ' draggable="false">' +
             '<div class="ag-ji">' +
               '<b class="ag-ttl">' + U.esc(it.title) + "</b>" +
               '<span class="ag-sub">' +
@@ -202,6 +205,8 @@
             "</div>" +
             st +
             (it.oid ? '<span class="ag-go">' + U.icon("chevronRight", 13) + "</span>" : "") +
+            '</' + openTag + '>' +
+            (dragable ? '<button type="button" class="ag-drag-handle" aria-label="拖动改期：' + U.esc(it.title) + '" title="按住把手直接拖动改期">' + U.icon("grip", 19) + '</button>' : '') +
           "</" + tag + ">"
         );
       }).join("");
@@ -823,17 +828,19 @@
          拖到任意空档松手 = 改期；拖回原位 = 什么都不写；
          靠近上下边缘自动滚屏，跨月也能拖到。 */
       (function bindMove() {
-        var wrap = document.getElementById("listWrap");
-        var screen = document.getElementById("screen");
+        var wrap = document.getElementById("listWrap"), screen = document.getElementById("screen");
         if (!wrap) return;
-
-        var ghost = null, cur = null, job = null;
-        var sx = 0, sy = 0, lx = 0, ly = 0, autoV = 0, rafId = 0;
-
-        /* 落点是一个「上/下午」整体：空档能落，已经排了活的也能落 */
+        var ghost = null, cur = null, job = null, pointer = null;
+        var lx = 0, ly = 0, autoV = 0, rafId = 0, lastFrame = 0;
+        var busy = false;
+        function bounds() {
+          var r = screen.getBoundingClientRect(), nav = document.getElementById("tabbar");
+          return {top: r.top, bottom: nav ? Math.min(r.bottom, nav.getBoundingClientRect().top - 8) : r.bottom};
+        }
         function findSlot(x, y) {
-          var el = document.elementFromPoint(x, y);
-          return el ? el.closest(".ag-slot") : null;
+          var r = bounds(); if (y < r.top || y > r.bottom) return null;
+          var el = document.elementFromPoint(x, y), slot = el && el.closest(".ag-slot");
+          return slot && wrap.contains(slot) ? slot : null;
         }
         function clearSlot() { if (cur) { cur.classList.remove("drop-on"); cur = null; } }
         function hit(x, y) {
@@ -841,107 +848,92 @@
           if (slot !== cur) { clearSlot(); cur = slot; if (cur) cur.classList.add("drop-on"); }
         }
         function edgeSpeed(y) {
-          if (!screen) return 0;
-          var r = screen.getBoundingClientRect(), pad = 72;
-          if (y < r.top + pad) return -Math.min(20, (r.top + pad - y) / 3);
-          if (y > r.bottom - pad) return Math.min(20, (y - (r.bottom - pad)) / 3);
+          var r = bounds(), pad = 64;
+          if (y < r.top + pad) return -360 * Math.pow(Math.min(1, Math.max(0, (r.top + pad - y) / pad)), 2);
+          if (y > r.bottom - pad) return 360 * Math.pow(Math.min(1, Math.max(0, (y - r.bottom + pad) / pad)), 2);
           return 0;
         }
-        function loop() {
-          rafId = 0;
-          if (!job) return;
-          if (autoV && screen) { screen.scrollTop += autoV; hit(lx, ly); }
+        function loop(time) {
+          rafId = 0; if (!job) return;
+          var delta = lastFrame ? Math.min(32, time - lastFrame) : 16;
+          lastFrame = time;
+          if (autoV) { screen.scrollTop += autoV * delta / 1000; hit(lx, ly); }
           rafId = w.requestAnimationFrame(loop);
         }
-        function stopLoop() { if (rafId) { w.cancelAnimationFrame(rafId); rafId = 0; } }
         function killGhost(g) {
           if (!g) return;
           g.classList.add("drop-done");
-          setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 200);
+          setTimeout(function () { if (g.parentNode) g.parentNode.removeChild(g); }, 180);
         }
-        /* 落位那一下浏览器还会补一个 click，落在订单链接上会跳详情，得一口吃掉 */
-        function swallowClick() {
-          var handler = function (ev) { ev.preventDefault(); ev.stopPropagation(); };
-          document.addEventListener("click", handler, true);
-          setTimeout(function () { document.removeEventListener("click", handler, true); }, 700);
+        function positionGhost() {
+          var width = w.innerWidth || 320, half = Math.min(224, width - 24) / 2;
+          ghost.style.left = Math.max(half + 12, Math.min(width - half - 12, lx)) + "px";
+          ghost.style.top = Math.max(bounds().top + 70, ly - 16) + "px";
         }
-
         function move(e) {
-          if (!job) return;
-          lx = e.clientX; ly = e.clientY;
-          if (!ghost) {
-            if (Math.hypot(lx - sx, ly - sy) < 8) return;
-            ghost = document.createElement("div");
-            ghost.className = "drag-ghost";
-            ghost.innerHTML = job.card.innerHTML;
-            document.body.appendChild(ghost);
-            job.card.classList.add("dragging");
-            document.body.classList.add("is-dragging");
-            if (!rafId) rafId = w.requestAnimationFrame(loop);
-          }
-          e.preventDefault();
-          ghost.style.left = lx + "px";
-          ghost.style.top = ly + "px";
-          hit(lx, ly);
-          autoV = edgeSpeed(ly);
+          if (!job || e.pointerId !== pointer) return;
+          e.preventDefault(); lx = e.clientX; ly = e.clientY;
+          positionGhost();
+          hit(lx, ly); autoV = edgeSpeed(ly);
         }
-
         function up(e) {
+          if (!job || (e.pointerId != null && e.pointerId !== pointer)) return;
+          var j = job, g = ghost, pid = pointer;
+          var canceled = e.type !== "pointerup";
+          var slot = canceled ? null : findSlot(e.clientX, e.clientY);
+          job = null; ghost = null; pointer = null; autoV = 0; lastFrame = 0;
+          if (rafId) { w.cancelAnimationFrame(rafId); rafId = 0; }
           wrap.removeEventListener("pointermove", move);
           wrap.removeEventListener("pointerup", up);
           wrap.removeEventListener("pointercancel", up);
-          var j = job, g = ghost;
-          job = null; ghost = null; autoV = 0;
-          stopLoop();
-          clearSlot();
-          document.body.classList.remove("is-dragging");
-          if (j && j.card) j.card.classList.remove("dragging");
-          if (!g) return;                      /* 没起拖 → 交给链接自己跳详情 */
-
-          suppressClickUntil = Date.now() + 600;   /* 吃掉落位时那次 click */
-          swallowClick();
-          var slot = findSlot(e.clientX, e.clientY);
-          if (!slot) { killGhost(g); return; }     /* 没落在空档，原样收回 */
-
-          var day = slot.getAttribute("data-day");
-          var ampm = slot.getAttribute("data-ampm");
-          if (j.day === day && j.ampm === ampm) { killGhost(g); return; }   /* 就在这个档期，别白写一次 */
-          var month = D.MONTHS[state.month];
-          var fullDate = month.y + "-" + day.replace(/\./g, "-");
-
-          killGhost(g);
+          wrap.removeEventListener("lostpointercapture", up);
+          w.removeEventListener("blur", up);
+          try { j.handle.releasePointerCapture(pid); } catch (err) {}
+          clearSlot(); document.body.classList.remove("is-dragging");
+          j.card.classList.remove("dragging"); killGhost(g);
+          suppressClickUntil = Date.now() + 350;
+          if (!slot) return;
+          var day = slot.getAttribute("data-day"), ampm = slot.getAttribute("data-ampm");
+          if (j.day === day && j.ampm === ampm) return;
+          var month = D.MONTHS[state.month], fullDate = month.y + "-" + day.replace(/\./g, "-");
+          busy = true;
           D.moveOrder(j.id, fullDate, ampm).then(function (o) {
             if (!o) return;
-            var dd = dayByDate(day);
-            var sl = dd && dd.slots.filter(function (x) { return x.ampm === ampm; })[0];
-            var n = sl && sl.items ? sl.items.length : 1;
-            U.toast("已改到 " + day + " " + ampm + (n > 1 ? " · 同档 " + n + " 单" : ""));
-            refresh();
-          }).catch(function (err) {
-            U.toast(err.message || "改期没成功");
-            refresh();
-          });
+            U.toast("已改到 " + day + " " + ampm);
+            if (wrap.isConnected) refresh();
+          }).catch(function (err) { U.toast(err.message || "改期没成功"); }).then(function () { busy = false; });
         }
-
+        wrap.addEventListener("contextmenu", function (e) { if (e.target.closest(".ag-item")) e.preventDefault(); });
+        wrap.addEventListener("dragstart", function (e) { if (e.target.closest(".ag-item")) e.preventDefault(); });
+        wrap.addEventListener("click", function (e) {
+          if (e.target.closest(".ag-drag-handle") || (Date.now() < suppressClickUntil && e.target.closest(".ag-item, .ag-free"))) {
+            e.preventDefault(); e.stopPropagation();
+          }
+        }, true);
         wrap.addEventListener("pointerdown", function (e) {
-          if (Date.now() < suppressClickUntil) return;
-          var card = e.target.closest(".ag-item[href][data-drag]");
-          if (!card) return;                    /* 只有还没完工的活能拖，历史单不给动 */
-          if (e.button != null && e.button !== 0) return;
-          e.preventDefault();                   /* 别让浏览器把链接当成原生拖拽/文本选择 */
-          var id = (card.getAttribute("href") || "").replace("#/order/", "");
-          if (!id) return;
+          if (busy || job || e.isPrimary === false || Date.now() < suppressClickUntil) return;
+          var handle = e.target.closest(".ag-drag-handle");
+          var card = handle && handle.closest(".ag-item[data-order][data-drag]");
+          if (!card || (e.button != null && e.button !== 0)) return;
+          e.preventDefault();
           var host = card.closest(".ag-slot");
-          job = {
-            id: id, card: card,
-            day: host && host.getAttribute("data-day"),
-            ampm: host && host.getAttribute("data-ampm")
-          };
-          sx = lx = e.clientX; sy = ly = e.clientY;
-          try { card.setPointerCapture(e.pointerId); } catch (err) {}
-          wrap.addEventListener("pointermove", move);
+          pointer = e.pointerId;
+          job = {id: card.getAttribute("data-order"), card: card, handle: handle,
+            day: host.getAttribute("data-day"), ampm: host.getAttribute("data-ampm")};
+          lx = e.clientX; ly = e.clientY;
+          ghost = document.createElement("div"); ghost.className = "drag-ghost";
+          ghost.innerHTML = card.querySelector(".ag-open").innerHTML;
+          positionGhost();
+          document.body.appendChild(ghost);
+          card.classList.add("dragging"); document.body.classList.add("is-dragging");
+          hit(lx, ly);
+          try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+          wrap.addEventListener("pointermove", move, {passive: false});
           wrap.addEventListener("pointerup", up);
           wrap.addEventListener("pointercancel", up);
+          wrap.addEventListener("lostpointercapture", up);
+          w.addEventListener("blur", up);
+          rafId = w.requestAnimationFrame(loop);
         });
       })();
 

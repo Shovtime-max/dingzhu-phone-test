@@ -8,7 +8,7 @@ function env(store = {}, date = '2026-10-26T10:00:00+08:00', failWrite = false) 
   class E {
     constructor(id, attrs = {}) { this.id = id; this.attrs = attrs; this.events = {}; this.children = []; this.value = ''; this.classList = {toggle(){},add(){},remove(){}}; this.style = {}; }
     addEventListener(k, fn) { (this.events[k] ||= []).push(fn); }
-    fire(k, target = this) { return Promise.all((this.events[k] || []).map(fn=>fn.call(this, {target,key:'',preventDefault(){}}))); }
+    fire(k, target = this) { return Promise.all((this.events[k] || []).map(fn=>fn.call(this, {target,key:'',preventDefault(){},stopPropagation(){}}))); }
     getAttribute(k) { return this.attrs[k] ?? null; }
     closest(s) { if (s.startsWith('#')) return s.slice(1).split(' ')[0] === this.id ? this : null; return this; }
     querySelector() { return new E('cnt'); }
