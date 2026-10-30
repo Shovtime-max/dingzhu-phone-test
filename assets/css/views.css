@@ -1736,11 +1736,8 @@ a.ag-item:active {
 
 /* 能拖的只有还没完工、还没结清的活（历史单保持只读） */
 .ag-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.ag-open { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; color: inherit; text-decoration: none; touch-action: pan-y; -webkit-touch-callout: none; -webkit-user-drag: none; }
+.ag-open { cursor: pointer; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; color: inherit; text-decoration: none; touch-action: pan-y; -webkit-touch-callout: none; -webkit-user-drag: none; }
 .ag-open .ag-ji { flex: 1; min-width: 0; }
-.ag-drag-handle { flex: 0 0 44px; width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; touch-action: none; -webkit-touch-callout: none; cursor: grab; }
-.ag-drag-handle:active { cursor: grabbing; background: var(--brand-light); }
-.ag-drag-handle:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .ag-item.dragging { opacity: 0.32; }
 /* 拖动时每个上/下午都是可落点，已经有活儿的也照落（两个队能同时上） */
 body.is-dragging .ag-slot {
@@ -2268,10 +2265,10 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
   .dockbar { bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
 }
 
-/* Floating navigation, with room for the iPhone home indicator. */
+/* Compact floating navigation; safe-area offset stays outside the card. */
 .tabbar {
   left: 14px; right: 14px; bottom: 4px;
-  height: calc(66px + env(safe-area-inset-bottom, 0px)); padding: 4px 5px; border: 1px solid var(--line);
+  height: 64px; padding: 4px 5px; border: 1px solid var(--line);
   border-radius: 22px; background: rgba(255, 255, 255, 0.97);
   box-shadow: 0 8px 26px rgba(15, 30, 60, 0.16);
 }
@@ -2280,12 +2277,15 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .tabbar .tab.fab { flex-basis: 56px; width: 56px; height: 56px; margin-top: -25px; }
 .tabbar .tab .dot { top: 5px; margin-right: -17px; }
 @media (max-width: 639px), (hover: none) and (pointer: coarse) {
-  .shell { --tabbar-h: calc(86px + env(safe-area-inset-bottom, 0px)); }
-  .tabbar { padding: 4px 5px calc(4px + env(safe-area-inset-bottom, 0px)); }
-  .dockbar { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+  .shell {
+    --nav-bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) - 20px));
+    --tabbar-h: calc(76px + var(--nav-bottom));
+  }
+  .tabbar { bottom: var(--nav-bottom); height: 64px; padding: 4px 5px; }
+  .dockbar { bottom: calc(82px + var(--nav-bottom)); }
 }
 
-/* Safe area stays inside the floating card, avoiding an empty strip below it. */
+/* Preset and selection controls. */
 .preset-editor { width: 100%; min-height: 180px; resize: vertical; font: inherit; }
 .team-picker .tagchip { min-height: 44px; }
 .form-label #btnProcessPresets { margin-left: auto; min-height: 32px; }

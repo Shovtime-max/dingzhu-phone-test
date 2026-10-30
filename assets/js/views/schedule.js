@@ -182,8 +182,8 @@
     if (has) {
       body = slot.items.map(function (it) {
         var tag = "div";
-        var openTag = it.oid ? "a" : "div";
-        var href = it.oid ? ' href="#/order/' + it.oid + '"' : "";
+        var openTag = "div";
+        var href = it.oid ? ' role="link" tabindex="0" data-order-link="' + U.esc(it.oid) + '"' : "";
         var m = it.oid ? jobMeta(it) : null;
         var st = m ? '<span class="ag-st ' + m.key + '">' + m.text + "</span>" : "";
         /* 已完工 / 已结清是历史账，别让人顺手拖走把日期改了 */
@@ -206,7 +206,6 @@
             st +
             (it.oid ? '<span class="ag-go">' + U.icon("chevronRight", 13) + "</span>" : "") +
             '</' + openTag + '>' +
-            (dragable ? '<button type="button" class="ag-drag-handle" aria-label="拖动改期：' + U.esc(it.title) + '" title="按住把手直接拖动改期">' + U.icon("grip", 19) + '</button>' : '') +
           "</" + tag + ">"
         );
       }).join("");
@@ -832,7 +831,7 @@
         if (!wrap) return;
         var ghost = null, cur = null, job = null, pointer = null;
         var lx = 0, ly = 0, autoV = 0, rafId = 0, lastFrame = 0;
-        var busy = false;
+        var busy = false, candidate = null, holdTimer = 0, sx = 0, sy = 0;
         function bounds() {
           var r = screen.getBoundingClientRect(), nav = document.getElementById("tabbar");
           return {top: r.top, bottom: nav ? Math.min(r.bottom, nav.getBoundingClientRect().top - 8) : r.bottom};
@@ -879,7 +878,7 @@
         function up(e) {
           if (!job || (e.pointerId != null && e.pointerId !== pointer)) return;
           var j = job, g = ghost, pid = pointer;
-          var canceled = e.type !== "pointerup";
+          var canceled = e.type !== "pointerup" && e.type !== "touchend";
           var slot = canceled ? null : findSlot(e.clientX, e.clientY);
           job = null; ghost = null; pointer = null; autoV = 0; lastFrame = 0;
           if (rafId) { w.cancelAnimationFrame(rafId); rafId = 0; }
@@ -887,8 +886,8 @@
           wrap.removeEventListener("pointerup", up);
           wrap.removeEventListener("pointercancel", up);
           wrap.removeEventListener("lostpointercapture", up);
-          w.removeEventListener("blur", up);
-          try { j.handle.releasePointerCapture(pid); } catch (err) {}
+          w.removeEventListener("blur", cancel);
+          try { j.card.releasePointerCapture(pid); } catch (err) {}
           clearSlot(); document.body.classList.remove("is-dragging");
           j.card.classList.remove("dragging"); killGhost(g);
           suppressClickUntil = Date.now() + 350;
@@ -903,38 +902,101 @@
             if (wrap.isConnected) refresh();
           }).catch(function (err) { U.toast(err.message || "改期没成功"); }).then(function () { busy = false; });
         }
-        wrap.addEventListener("contextmenu", function (e) { if (e.target.closest(".ag-item")) e.preventDefault(); });
-        wrap.addEventListener("dragstart", function (e) { if (e.target.closest(".ag-item")) e.preventDefault(); });
-        wrap.addEventListener("click", function (e) {
-          if (e.target.closest(".ag-drag-handle") || (Date.now() < suppressClickUntil && e.target.closest(".ag-item, .ag-free"))) {
-            e.preventDefault(); e.stopPropagation();
-          }
-        }, true);
-        wrap.addEventListener("pointerdown", function (e) {
-          if (busy || job || e.isPrimary === false || Date.now() < suppressClickUntil) return;
-          var handle = e.target.closest(".ag-drag-handle");
-          var card = handle && handle.closest(".ag-item[data-order][data-drag]");
-          if (!card || (e.button != null && e.button !== 0)) return;
-          e.preventDefault();
-          var host = card.closest(".ag-slot");
-          pointer = e.pointerId;
-          job = {id: card.getAttribute("data-order"), card: card, handle: handle,
+        function stopCandidate() {
+          clearTimeout(holdTimer); holdTimer = 0; candidate = null;
+          if (!job) w.removeEventListener("blur", cancel);
+        }
+        function cancel() {
+          stopCandidate();
+          if (job) up({type: "cancel"});
+          w.removeEventListener("blur", cancel);
+        }
+        function begin() {
+          var c = candidate;
+          if (!c || busy || !wrap.isConnected) { stopCandidate(); return; }
+          clearTimeout(holdTimer); holdTimer = 0; candidate = null;
+          var card = c.card, host = card.closest(".ag-slot");
+          pointer = c.pointer;
+          job = {id: card.getAttribute("data-order"), card: card,
             day: host.getAttribute("data-day"), ampm: host.getAttribute("data-ampm")};
-          lx = e.clientX; ly = e.clientY;
           ghost = document.createElement("div"); ghost.className = "drag-ghost";
           ghost.innerHTML = card.querySelector(".ag-open").innerHTML;
-          positionGhost();
-          document.body.appendChild(ghost);
+          positionGhost(); document.body.appendChild(ghost);
           card.classList.add("dragging"); document.body.classList.add("is-dragging");
           hit(lx, ly);
-          try { handle.setPointerCapture(e.pointerId); } catch (err) {}
-          wrap.addEventListener("pointermove", move, {passive: false});
-          wrap.addEventListener("pointerup", up);
-          wrap.addEventListener("pointercancel", up);
-          wrap.addEventListener("lostpointercapture", up);
-          w.addEventListener("blur", up);
+          if (!c.touch) {
+            try { card.setPointerCapture(pointer); } catch (err) {}
+            wrap.addEventListener("pointermove", move, {passive: false});
+            wrap.addEventListener("pointerup", up);
+            wrap.addEventListener("pointercancel", up);
+            wrap.addEventListener("lostpointercapture", up);
+          }
           rafId = w.requestAnimationFrame(loop);
+        }
+        function arm(e, touch) {
+          if (busy || job || candidate || Date.now() < suppressClickUntil) return;
+          var card = e.target.closest(".ag-item[data-order][data-drag]");
+          if (!card) return;
+          lx = sx = e.clientX; ly = sy = e.clientY;
+          candidate = {card: card, pointer: touch ? e.identifier : e.pointerId, touch: touch};
+          holdTimer = setTimeout(begin, 220);
+          w.addEventListener("blur", cancel);
+        }
+        wrap.addEventListener("contextmenu", function (e) { if (e.target.closest(".ag-item")) e.preventDefault(); });
+        wrap.addEventListener("dragstart", function (e) { if (e.target.closest(".ag-item")) e.preventDefault(); });
+        function openCard(e) {
+          if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+          var link = e.target.closest("[data-order-link]"); if (!link) return;
+          e.preventDefault();
+          var id = link.getAttribute("data-order-link");
+          if (w.APP.openOrder) w.APP.openOrder(id); else w.location.hash = "#/order/" + id;
+        }
+        wrap.addEventListener("click", function (e) {
+          if (job || Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); return; }
+          openCard(e);
+        }, true);
+        wrap.addEventListener("keydown", openCard);
+        wrap.addEventListener("pointerdown", function (e) {
+          if (e.pointerType === "touch" || e.isPrimary === false || (e.button != null && e.button !== 0)) return;
+          arm(e, false);
         });
+        wrap.addEventListener("pointermove", function (e) {
+          if (!candidate || candidate.touch || e.pointerId !== candidate.pointer) return;
+          lx = e.clientX; ly = e.clientY;
+          if (Math.hypot(lx - sx, ly - sy) >= 6) { e.preventDefault(); begin(); }
+        });
+        wrap.addEventListener("pointerup", function () { if (!job) stopCandidate(); });
+        wrap.addEventListener("pointercancel", function () { if (!job) stopCandidate(); });
+        wrap.addEventListener("pointerleave", function () { if (!job) stopCandidate(); });
+        // Safari decides native scrolling on the first touchmove. Keep quick swipes
+        // native; prevent that first move only after the stationary hold has armed.
+        wrap.addEventListener("touchstart", function (e) {
+          if (e.touches.length !== 1) { cancel(); return; }
+          var t = e.touches[0];
+          arm({target:e.target, clientX:t.clientX, clientY:t.clientY, identifier:t.identifier}, true);
+        }, {passive: true});
+        wrap.addEventListener("touchmove", function (e) {
+          if (e.touches.length !== 1) { cancel(); return; }
+          var t = e.touches[0];
+          if (candidate && candidate.touch) {
+            if (Math.hypot(t.clientX - sx, t.clientY - sy) >= 8) stopCandidate();
+            return;
+          }
+          if (!job || t.identifier !== pointer) return;
+          if (!e.cancelable) { cancel(); return; }
+          e.preventDefault();
+          move({pointerId:t.identifier, clientX:t.clientX, clientY:t.clientY, preventDefault:function(){}});
+        }, {passive: false});
+        wrap.addEventListener("touchend", function (e) {
+          if (candidate) { stopCandidate(); return; }
+          if (!job) return;
+          var t = Array.prototype.find.call(e.changedTouches, function (x) { return x.identifier === pointer; });
+          if (!t) return;
+          if (e.cancelable) e.preventDefault();
+          up({type:"touchend", pointerId:t.identifier, clientX:t.clientX, clientY:t.clientY});
+          w.removeEventListener("blur", cancel);
+        }, {passive: false});
+        wrap.addEventListener("touchcancel", cancel, {passive: true});
       })();
 
       /* 排档期流程里点「取消」：这单退回待定池，不凭空消失 */

@@ -229,7 +229,11 @@
     });
   }
 
-  w.APP = { render: render, TABS: TABS, orderBackHref: function () { return orderReturn; } };
+  w.APP = { render: render, TABS: TABS, orderBackHref: function () { return orderReturn; }, openOrder: function (id) {
+    var screen = document.getElementById("screen");
+    if (screen) departure = {hash: activeHash, top: screen.scrollTop};
+    w.location.hash = "#/order/" + encodeURIComponent(id);
+  } };
 
   w.addEventListener("hashchange", render);
 
