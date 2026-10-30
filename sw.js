@@ -11,7 +11,7 @@
  *     不会卡在 waiting 等用户关掉所有标签页
  *   · 缓存名带版本号，activate 时清掉旧版本的桶
  */
-const CACHE = 'dingzhu-shell-v9-phone';
+const CACHE = 'dingzhu-shell-v10-map';
 const ASSETS = [
   './', './index.html',
   './assets/css/tokens.css', './assets/css/app.css', './assets/css/views.css',

@@ -132,7 +132,9 @@
     w.GEO.health(true).then(function (h) {
       var el = document.getElementById("geoMode");
       if (!el) return;
-      if (!h.online) el.innerHTML = '<i class="dot off"></i>代理未启动 · 搜索与车程都不可用';
+      if (!h.online && w.GEO.remote) el.innerHTML = '<i class="dot off"></i>地图服务暂时连不上 · 当前使用本地估算';
+      else if (!h.key && w.GEO.remote) el.innerHTML = '<i class="dot off"></i>云端地图未配置 · 请联系管理员';
+      else if (!h.online) el.innerHTML = '<i class="dot off"></i>代理未启动 · 搜索与车程都不可用';
       else if (!h.key) el.innerHTML = '<i class="dot off"></i>未配高德 Key · 当前用 OSM 搜索 · 点此配置';
       else el.innerHTML = '<i class="dot on"></i>高德已接通 · 地名搜索 + 真实车程';
     });
@@ -140,6 +142,26 @@
 
   /* 现场贴高德 Key：代理写入并立即生效，前端不留 Key */
   function keySheet() {
+    if (w.GEO.remote) {
+      var cloudMask = U.sheet("<h3>地图服务</h3>" +
+        '<div class="sub">高德 Key 已由管理员保存在云端，使用者无需填写。地点搜索、真实车程和天气需要联网。</div>' +
+        '<div class="key-help" id="cloudMapStatus">正在检查连接…</div>' +
+        '<button class="btn primary mt14" id="btnTestMap">重新检测</button>');
+      function checkCloud() {
+        var el = cloudMask.querySelector("#cloudMapStatus");
+        var btn = cloudMask.querySelector("#btnTestMap");
+        btn.disabled = true;
+        el.textContent = "正在检查连接…";
+        w.GEO.health(true).then(function (h) {
+          btn.disabled = false;
+          el.textContent = !h.online ? "暂时连接不上地图服务。请检查网络，稍后重试；当前使用本地估算。" :
+            !h.key ? "云端尚未配置高德 Key，请联系管理员。" : "云端连接正常，已配置高德 Key。";
+        });
+      }
+      cloudMask.addEventListener("click", function (e) { if (e.target.closest("#btnTestMap")) checkCloud(); });
+      checkCloud();
+      return;
+    }
     var mask = U.sheet(
       "<h3>配置高德地图 Key</h3>" +
       '<div class="sub">Key 只写进本机代理，不会出现在前端代码里</div>' +

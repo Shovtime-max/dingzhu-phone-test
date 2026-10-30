@@ -2,7 +2,7 @@
    地理能力（高德优先 · 本地坐标兜底）
    --------------------------------------------------------------------------
    三层：
-   1. 真实：页面 → 本地代理 127.0.0.1:4174 → 高德（Key 只在代理里）
+   1. 真实：页面 → 本地或云端代理 → 高德（Key 只在代理里）
    2. 兜底：本地村镇坐标表（SEED）+ 直线距离折算车程
    3. 判定：车程 ≤ 30 分钟算「顺路」，超过就是「不顺路」
 
@@ -11,7 +11,8 @@
 (function (w) {
   "use strict";
 
-  var EP = "http://127.0.0.1:4174";
+  var REMOTE = !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(w.location.hostname || "");
+  var EP = REMOTE ? "https://dingzhu-map.shovtimegogogo.workers.dev" : "http://127.0.0.1:4174";
   var LS_KEY = "roofgeo.v1";
   var ROAD_KMH = 32;      /* 农村路况按 32km/h 折算 */
   var BASE_MIN = 4;       /* 起步时间（出车、停车、搬工具） */
@@ -141,7 +142,7 @@
         reject(new Error("timeout"));
       }, ms || 3500);
       fetch(url, Object.assign({}, options || {}, { signal: ctl ? ctl.signal : undefined }))
-        .then(function (r) { return r.json(); })
+        .then(function (r) { if (r.ok === false) throw new Error("地图服务暂不可用（" + r.status + "）"); return r.json(); })
         .then(function (j) { clearTimeout(timer); resolve(j); })
         .catch(function (e) { clearTimeout(timer); reject(e); });
     });
@@ -152,7 +153,7 @@
     if (!force && status.checked && now - status.checked < 30000) {
       return Promise.resolve(status);
     }
-    return fetchJSON(EP + "/health", 1200)
+    return fetchJSON(EP + "/health", REMOTE ? 6000 : 1200)
       .then(function (j) {
         status = { checked: Date.now(), online: !!j.ok, key: !!j.key };
         return status;
@@ -401,7 +402,7 @@
 
     return health().then(function (h) {
       if (!h.online || !h.key || !t) return withFallback({ items: local, source: "seed" });
-      return fetchJSON(EP + "/suggest?keywords=" + encodeURIComponent(text), 2600)
+      return fetchJSON(EP + "/suggest?keywords=" + encodeURIComponent(text), REMOTE ? 8000 : 2600)
         .then(function (j) {
           var items = local.slice();
           (j.items || []).forEach(function (it) {
@@ -498,7 +499,7 @@
         return est;
       }
       var url = EP + "/route?origin=" + a.lng + "," + a.lat + "&dest=" + b.lng + "," + b.lat;
-      return fetchJSON(url, 3200)
+      return fetchJSON(url, REMOTE ? 8000 : 3200)
         .then(function (j) {
           var out = (j.ok && j.minutes != null)
             ? { min: j.minutes, km: j.km, source: "amap" }
@@ -557,6 +558,7 @@
 
   /* 在页面里直接配置高德 Key：交给本机代理写入并立即生效 */
   function setKey(k) {
+    if (REMOTE) return Promise.reject(new Error("云端 Key 由管理员配置，无需在手机输入"));
     return fetchJSON(EP + "/session", 1800).then(function (session) {
       if (!session.ok || !session.token) throw new Error("请通过本地服务打开页面后配置 Key");
       return fetchJSON(EP + "/key", 10000, {
@@ -610,6 +612,7 @@
 
   w.GEO = {
     EP: EP,
+    remote: REMOTE,
     SEED: SEED,
     TOWN: TOWN,
     NEAR_MIN: NEAR_MIN,
