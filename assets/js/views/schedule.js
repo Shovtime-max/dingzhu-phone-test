@@ -15,7 +15,6 @@
   var calWxState = "正在获取天气", calWx = {};        /* "2026-10-28" → 出发地当天的天气（月历格子用） */
   var CAL_WEEK = ["日", "一", "二", "三", "四", "五", "六"];
   var resizeHandler = null;
-  var pressTimer = null;
   var wxOf = {};          /* 订单号 → { "2026-10-28": {day,tmax,tmin,...} }，按施工地点取 */
   var suppressClickUntil = 0;   /* 拖拽松手后紧接着的 click 要吃掉，否则会误跳「记一单」 */
 
@@ -72,6 +71,16 @@
   }
 
   /* ---------- 数据 ---------- */
+  function shiftedMonth(key, offset) {
+    var parts = key.split("-"), date = new Date(+parts[0], +parts[1] - 1 + offset, 1);
+    var result = date.getFullYear() + "-" + ("0" + (date.getMonth() + 1)).slice(-2);
+    return result < "1900-01" ? "1900-01" : result > "9998-12" ? "9998-12" : result;
+  }
+  function switchMonth(key) {
+    D.ensureMonth(key); state.month = key; pendingFilter = "全部";
+    w.APP.render();
+    var screen = document.getElementById("screen"); if (screen) screen.scrollTop = 0;
+  }
   function days() { return D.MONTHS[state.month].days; }
   function label() { return D.MONTHS[state.month].label; }
   function isBlank(d) {
@@ -281,11 +290,6 @@
   }
 
   function listHtml() {
-    if (!hasAnyJob()) {
-      return '<div class="empty"><div class="art">' + U.icon("calendarDays", 28) + "</div>" +
-        "<h4>" + label() + " 还没排期</h4><p>长按左上角图标可切换月份，或去「记一单」建第一张施工单</p>" +
-        '<div class="mt16"><a class="btn ghost sm" href="#/create">记一单</a></div></div>';
-    }
     var arr = filtered();
     if (!arr.length) {
       return '<div class="empty"><div class="art">' + U.icon("inbox", 28) + "</div>" +
@@ -300,8 +304,8 @@
        不再画上/下两条色条（看不出在哪个村），改为村名 + 状态色。
      · 格子不承载拖拽（改期仍在列表里做），点一下开当天详情
      ========================================================================== */
-  function calCells() {
-    var mth = D.MONTHS[state.month], y = mth.y, m = mth.m;
+  function calCells(key) {
+    var mth = D.ensureMonth(key || state.month), y = mth.y, m = mth.m;
     var lead = new Date(y, m - 1, 1).getDay();          /* 0 = 周日 */
     var prevTotal = new Date(y, m - 1, 0).getDate();
     var out = [], i;
@@ -374,8 +378,8 @@
       "</button>";
   }
 
-  function monthHtml() {
-    var cells = calCells();
+  function monthHtml(key) {
+    var cells = calCells(key);
     var head = '<div class="cal-week">' + CAL_WEEK.map(function (t, i) {
       return '<span' + (i === 0 || i === 6 ? ' class="we"' : "") + ">" + t + "</span>";
     }).join("") + "</div>";
@@ -392,6 +396,13 @@
     return '<div class="cal">' + head +
       '<div class="cal-grid">' + cells.map(calCellHtml).join("") + "</div>" +
       legend + "</div>";
+  }
+
+  function monthPagesHtml() {
+    return [-1, 0, 1].map(function (offset) {
+      var key = shiftedMonth(state.month, offset);
+      return '<section class="cal-month-page" data-month="' + key + '" aria-label="' + U.esc(D.ensureMonth(key).label) + '">' + monthHtml(key) + '</section>';
+    }).join("");
   }
 
   /* 月历格子点开：当天详情（订单 + 空档排单 + 出发地/作业地天气） */
@@ -473,33 +484,21 @@
   }
 
   /* ---------- 月份选择抽屉 ---------- */
-  function monthSheet() {
-    var cells = "";
+  function monthSheet(year) {
+    var y = Number(year) || Number(state.month.slice(0, 4)), cells = "";
     for (var m = 1; m <= 12; m++) {
-      var key = D.TODAY.y + "-" + (m < 10 ? "0" + m : m);
-      var has = !!D.MONTHS[key];
-      var on = key === state.month;
-      cells += '<button class="mcell' + (on ? " on" : "") + (has ? "" : " off") + '" data-m="' + key + '">' +
-        m + " 月" + (has ? '<i class="mdot"></i>' : "") + "</button>";
+      var key = y + "-" + (m < 10 ? "0" + m : m);
+      var has = D.MONTHS[key] && D.MONTHS[key].days.some(function (d) { return d.slots.some(function (sl) { return sl.items && sl.items.length; }); });
+      cells += '<button type="button" class="mcell' + (key === state.month ? " on" : "") + '" data-m="' + key + '">' + m + ' 月' + (has ? '<i class="mdot"></i>' : '') + '</button>';
     }
-
-    var mask = U.sheet(
-      "<h3>选择月份</h3>" +
-      '<div class="sub">' + D.TODAY.y + " 年 · 当前 " + label() + "</div>" +
-      '<div class="mgrid">' + cells + "</div>" +
-      '<div class="t-xs mut mt12" style="line-height:1.6">带圆点的月份已有排程；灰色月份尚未开排期。</div>'
-    );
-
+    var mask = U.sheet('<h3>选择月份</h3>' +
+      '<div class="month-switch"><button type="button" class="icon-btn" id="monthYearPrev" aria-label="上一年">' + U.icon("arrowLeft", 16) + '</button><b>' + y + ' 年</b><button type="button" class="icon-btn" id="monthYearNext" aria-label="下一年">' + U.icon("chevronRight", 16) + '</button></div>' +
+      '<div class="mgrid">' + cells + '</div><div class="t-xs mut mt12">带圆点的月份已有订单，所有月份均可查看和排期。</div>');
     mask.addEventListener("click", function (e) {
-      var b = e.target.closest("[data-m]");
-      if (!b) return;
-      var key = b.getAttribute("data-m");
-      if (!D.MONTHS[key]) { U.toast("该月尚未开排期"); return; }
-      state.month = key;
-      state.filter = "全部";
-      U.closeSheet();
-      w.APP.render();
-      U.toast("已切换到 " + D.MONTHS[key].label);
+      if (e.target.closest("#monthYearPrev")) { if (y > 1900) monthSheet(y - 1); return; }
+      if (e.target.closest("#monthYearNext")) { if (y < 9998) monthSheet(y + 1); return; }
+      var b = e.target.closest("[data-m]"); if (!b) return;
+      U.closeSheet(); switchMonth(b.getAttribute("data-m"));
     });
   }
 
@@ -667,7 +666,7 @@
 
     var bar =
       '<div class="appbar-row">' +
-        '<div class="appbar-logo" id="btnMonth" role="button" tabindex="0" aria-label="长按选择月份">' +
+        '<div class="appbar-logo" id="btnMonth" role="button" tabindex="0" aria-label="选择月份">' +
           U.icon("calendarDays", 20) + "</div>" +
         '<div class="col"><div class="appbar-title">档期</div>' +
         '<div class="appbar-sub">' + label() + " · " + totalOrders() + " 单排程</div></div>" +
@@ -678,6 +677,10 @@
           (w.PROFILE ? w.PROFILE.html() : '<div class="avatar">王队</div>') +
         "</div>" +
       "</div>" +
+      '<div class="month-switch" aria-label="月份切换">' +
+        '<button type="button" class="icon-btn" id="monthPrev" aria-label="上个月">' + U.icon("arrowLeft", 16) + '</button>' +
+        '<button type="button" class="month-select" id="monthPick">' + U.esc(label()) + U.icon("chevronDown", 13) + '</button>' +
+        '<button type="button" class="icon-btn" id="monthNext" aria-label="下个月">' + U.icon("chevronRight", 16) + '</button></div>' +
       '<div class="chiprow" id="dayFilter">' +
         FILTERS.map(function (f) {
           var on = !f.jump && f.k === state.filter;
@@ -706,7 +709,7 @@
     /* 待排的单不再在档期页另开托盘：出口已收到待定池「补充信息并推排期」那一个 */
     var body = forBar +
       (state.view === "month"
-        ? '<div class="mt12" id="calWrap">' + monthHtml() + "</div>"
+        ? '<div class="mt12 cal-pager" id="calWrap" aria-label="上下滑动切换月份">' + monthPagesHtml() + "</div>"
         : '<div class="mt12" id="listWrap">' + listHtml() + "</div>") +
       '<div style="height:8px"></div>';
 
@@ -718,7 +721,9 @@
       var lw = document.getElementById("listWrap");
       if (lw) lw.innerHTML = listHtml();
       var cw = document.getElementById("calWrap");
-      if (cw) cw.innerHTML = monthHtml();
+      if (cw) [].forEach.call(cw.querySelectorAll(".cal-month-page"), function (page) {
+        page.innerHTML = monthHtml(page.getAttribute("data-month"));
+      });
       /* 改期会让某些天从「有活」变「空着」，筛选条上的数字要跟着走 */
       [].forEach.call(document.querySelectorAll("#dayFilter .chip"), function (b) {
         var n = b.querySelector(".n");
@@ -836,6 +841,8 @@
         var c = e.target.closest(".cal-cell");
         var day = c && c.getAttribute("data-day");   /* 补白格没有 data-day，点了不响应 */
         if (!day) return;
+        var page = c.closest(".cal-month-page"), key = page && page.getAttribute("data-month");
+        if (key && key !== state.month) switchMonth(key);
         openDay(day);
       });
 
@@ -1031,26 +1038,27 @@
         }).catch(function (err) { U.toast(err.message); });
       });
 
-      /* logo 长按 → 月份选择 */
-      var logo = document.getElementById("btnMonth");
-      function start(e) {
-        if (e) e.preventDefault();
-        logo.classList.add("pressing");
-        clearTimeout(pressTimer);
-        pressTimer = setTimeout(function () {
-          logo.classList.remove("pressing");
-          monthSheet();
-        }, 480);
+      document.getElementById("btnMonth").addEventListener("click", function () { monthSheet(); });
+      document.getElementById("monthPick").addEventListener("click", function () { monthSheet(); });
+      document.getElementById("monthPrev").addEventListener("click", function () { switchMonth(shiftedMonth(state.month, -1)); });
+      document.getElementById("monthNext").addEventListener("click", function () { switchMonth(shiftedMonth(state.month, 1)); });
+      if (calWrap) {
+        var settleTimer = 0, touching = false;
+        function settleMonth() {
+          if (touching || !calWrap.isConnected || !calWrap.clientHeight) return;
+          var index = Math.max(0, Math.min(2, Math.round(calWrap.scrollTop / calWrap.clientHeight)));
+          var targetMonth = shiftedMonth(state.month, index - 1);
+          if (targetMonth !== state.month) switchMonth(targetMonth);
+          else if (Math.abs(calWrap.scrollTop - calWrap.clientHeight) > 1) calWrap.scrollTo({top: calWrap.clientHeight, behavior: "smooth"});
+        }
+        function queueSettle() { clearTimeout(settleTimer); settleTimer = setTimeout(settleMonth, 140); }
+        calWrap.scrollTop = calWrap.clientHeight;
+        w.requestAnimationFrame(function () { if (calWrap.isConnected) calWrap.scrollTop = calWrap.clientHeight; });
+        calWrap.addEventListener("touchstart", function () { touching = true; clearTimeout(settleTimer); }, {passive: true});
+        calWrap.addEventListener("touchend", function () { touching = false; queueSettle(); }, {passive: true});
+        calWrap.addEventListener("touchcancel", function () { touching = false; queueSettle(); }, {passive: true});
+        calWrap.addEventListener("scroll", queueSettle, {passive: true});
       }
-      function cancel() {
-        logo.classList.remove("pressing");
-        clearTimeout(pressTimer);
-      }
-      logo.addEventListener("pointerdown", start);
-      logo.addEventListener("pointerup", cancel);
-      logo.addEventListener("pointerleave", cancel);
-      logo.addEventListener("pointercancel", cancel);
-      logo.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 
       if (state.view === "list" && !restoringScroll) {
         w.requestAnimationFrame(function () { scrollToToday(false); });

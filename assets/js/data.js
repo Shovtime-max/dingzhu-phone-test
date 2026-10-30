@@ -1621,6 +1621,10 @@
     PENDING: PENDING,
     SCHEDULE: MONTHS[TODAY.key].days,
     MONTHS: MONTHS,
+    ensureMonth: function (key) {
+      if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(key)) || Number(String(key).slice(0, 4)) < 1900 || Number(String(key).slice(0, 4)) > 9998) throw new Error("月份超出支持范围");
+      return monthOfDate(key + "-01");
+    },
     rooms: rooms,
     due: due,
     stats: stats,

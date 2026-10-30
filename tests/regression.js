@@ -379,7 +379,9 @@ async function create(x,price='3000'){x.mount('create');x.fill();x.el.inPrice.va
    let v=x.mount('schedule');
    assert(v.body.includes('id="calWrap"'),'应渲染月历容器');
    assert(!v.body.includes('id="listWrap"'),'月视图不该同时渲染列表');
-   let cells=(v.body.match(/class="cal-cell/g)||[]).length;
+   assert.equal((v.body.match(/class="cal-month-page"/g)||[]).length,3,'前后相邻月份用于整月分页');
+   let current=v.body.match(/<section[^>]*data-month="2026-10"[^>]*>([\s\S]*?)<\/section>/)[1];
+   let cells=(current.match(/class="cal-cell/g)||[]).length;
    assert.equal(cells % 7,0,'格子数要是 7 的整数倍');
    assert(cells === 35 || cells === 42,'2026-10 是 35 格（1 号周四、31 号周六）');
    assert.equal((v.body.match(/cal-cell today/g)||[]).length,1,'今天只能有一个');
