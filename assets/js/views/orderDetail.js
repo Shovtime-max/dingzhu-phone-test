@@ -457,7 +457,7 @@
 
       var ca = document.getElementById("btnCallAgain");
       if (ca) ca.addEventListener("click", function () {
-        var msg = (o.owner || "您好") + "，您好，" + (o.addr || "施工订单") + "尚有尾款 ¥" + U.n(D.due(o)) + "，麻烦您方便时核对并安排，谢谢。";
+        var msg = (o.owner ? o.owner + "，您好，" : "您好，") + "尚有尾款 ¥" + U.n(D.due(o)) + "，麻烦您方便时核对并安排，谢谢。";
         if (!w.navigator.clipboard || !w.navigator.clipboard.writeText) { U.toast("当前设备无法自动复制，请手动联系业主"); return; }
         w.navigator.clipboard.writeText(msg).then(function () { U.toast("催款内容已复制，请自行发送"); }).catch(function () { U.toast("复制失败，请手动联系业主"); });
       });
