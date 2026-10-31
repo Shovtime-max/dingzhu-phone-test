@@ -130,6 +130,8 @@
 
     var hero =
       '<section class="card detail-hero mt10" style="border-radius:24px">' +
+        '<div class="rowline"><span class="k">客户姓名</span><span class="v">' + U.esc(o.owner || '未填写') + '</span></div>' +
+        '<div class="rowline"><span class="k">联系电话</span><span class="v">' + U.esc(o.phone || '未填写') + '</span></div>' +
         '<div class="tc">' +
           '<div class="t-xs b8 mut" style="letter-spacing:.06em;text-transform:uppercase">' + head + "</div>" +
           '<div class="d-amount ' + amtCls + ' mt6">' +
@@ -489,6 +491,8 @@
         U.sheet('<h3>修改规格与报价</h3><div class="sub">已收金额 ¥' + U.n(o.paid) + '，报价不得低于已收金额</div>' +
           '<div class="set-row"><div><b>主房间数</b></div><input class="inline-input" id="editMain" type="number" min="0" value="' + o.main + '"></div>' +
           '<div class="set-row"><div><b>偏房间数</b></div><input class="inline-input" id="editWing" type="number" min="0" value="' + o.wing + '"></div>' +
+          '<div class="set-row"><div><b>用料模式</b></div><select class="inline-input" id="editMode">' + ['待定', '大包', '人工'].map(function (mode) { return '<option value="' + mode + '"' + (mode === o.mode ? ' selected' : '') + '>' + mode + '</option>'; }).join('') + '</select></div>' +
+          '<div class="field"><label for="editTags">施工工序（用逗号分隔）</label><input class="field-box" id="editTags" value="' + U.esc((o.tags || []).join('，')) + '"></div>' +
           '<div class="set-row"><div><b>整单报价</b></div><input class="inline-input" id="editQuote" type="number" min="0" value="' + o.quote + '"></div>' +
           '<button class="btn primary mt14" id="editSave">保存</button>');
         document.getElementById("editSave").addEventListener("click", function () {
@@ -496,7 +500,10 @@
           try { main = D.parseMoney(document.getElementById("editMain").value); wing = D.parseMoney(document.getElementById("editWing").value); quote = D.parseMoney(document.getElementById("editQuote").value); }
           catch (err) { U.toast(err.message); return; }
           if (main + wing < 1) { U.toast("至少需要一间房"); return; }
-          return writeAction(function () { return D.saveOrder(o, {main:main, wing:wing, quote:quote}); }, function () { U.closeSheet(); U.toast("规格已保存"); });
+          var mode = document.getElementById("editMode").value;
+          var tags = document.getElementById("editTags").value.split(/[，,]/).map(function (s) { return s.trim(); }).filter(Boolean);
+          if (["待定", "大包", "人工"].indexOf(mode) < 0) { U.toast("请选择用料模式"); return; }
+          return writeAction(function () { return D.saveOrder(o, {main:main, wing:wing, quote:quote, mode:mode, tags:tags}); }, function () { U.closeSheet(); U.toast("规格已保存"); });
         });
       });
       var changeDate = document.getElementById("btnEditSpec2");

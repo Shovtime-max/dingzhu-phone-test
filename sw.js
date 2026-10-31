@@ -11,12 +11,13 @@
  *     不会卡在 waiting 等用户关掉所有标签页
  *   · 缓存名带版本号，activate 时清掉旧版本的桶
  */
-const CACHE = 'dingzhu-shell-v17-settings-backup';
+const CACHE = 'dingzhu-shell-v24-daynav';
 const ASSETS = [
   './', './index.html',
   './assets/css/tokens.css', './assets/css/app.css', './assets/css/views.css',
   './assets/js/ui.js', './assets/js/profile.js', './assets/js/data.js',
   './assets/js/media.js', './assets/js/backup.js', './assets/js/geo.js',
+  './assets/js/tilemap.js', './assets/js/heat.js', './assets/data/counties.js',
   './assets/js/views/schedule.js', './assets/js/views/create.js',
   './assets/js/views/orders.js', './assets/js/views/pending.js',
   './assets/js/views/analytics.js', './assets/js/views/orderDetail.js',

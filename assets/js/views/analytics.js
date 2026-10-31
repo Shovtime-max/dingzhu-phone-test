@@ -85,6 +85,212 @@
     );
   }
 
+  /* ==========================================================================
+     区域施工分布 · 天气场叠真地图
+     --------------------------------------------------------------------------
+     层级纯自动：z ≤ 11 看乡镇，z ≥ 12 看村。
+     取坐标的优先级：订单现场定位 o.geo → 村镇坐标表（GEO.TOWN / GEO.SEED）。
+     这两张表的坐标是 2026-10-31 用高德 geocode 回填的，村一级只精确到镇。
+     ========================================================================== */
+  var LEVEL_TOWN = 11;          /* 到这个缩放以下看镇，以上看村 */
+  var FOUR_CITY = [115.6, 34.1, 121.2, 37.5];   /* 潍坊·青岛·日照·临沂 外框 */
+
+  function townMeta(name) {
+    var T = (w.GEO && w.GEO.TOWN) || {};
+    return T[name] || null;
+  }
+
+  /* 单个订单定到哪个点：有现场定位就用定位，否则退到镇，再退到村表 */
+  function pointOf(o, level) {
+    var g = o.geo;
+    if (g && isFinite(g.lat) && isFinite(g.lng)) return { lat: g.lat, lng: g.lng, precise: true };
+    if (level === "village" && w.GEO && w.GEO.seedByVillage) {
+      var s = null;
+      try { s = w.GEO.seedByVillage(o.town, o.village); } catch (e) { s = null; }
+      if (s && isFinite(s.lat)) return { lat: s.lat, lng: s.lng, precise: false };
+    }
+    var t = townMeta(o.town);
+    if (t && isFinite(t.lat)) return { lat: t.lat, lng: t.lng, precise: false };
+    return null;
+  }
+
+  /* 按层级聚合成点位 */
+  function aggregate(list, level) {
+    var map = Object.create(null), miss = 0, missTowns = Object.create(null), unknown = 0;
+    list.forEach(function (o) {
+      var p = pointOf(o, level);
+      if (!p) { miss++; if (o.town) missTowns[o.town] = 1; return; }
+      var key = level === "village" ? (o.town + "·" + (o.village || "未标")) : (o.town || "未标");
+      var c = map[key];
+      if (!c) {
+        c = map[key] = {
+          key: key, town: o.town, name: level === "village" ? (o.village || "未标村") : (o.town || "未标镇"),
+          lat: p.lat, lng: p.lng, v: 0, rooms: 0, precise: p.precise
+        };
+      }
+      c.v++; c.rooms += D.rooms(o);
+      if (p.precise) { c.lat = p.lat; c.lng = p.lng; c.precise = true; }
+      else if (!c.precise) { /* 保持镇中心 */ }
+      if (!p.precise) unknown++;
+    });
+    var pts = Object.keys(map).map(function (k) { return map[k]; })
+      .sort(function (a, b) { return b.v - a.v || a.name.localeCompare(b.name, "zh-CN"); });
+    return { pts: pts, miss: miss, missTowns: Object.keys(missTowns), unknown: unknown };
+  }
+
+  function weatherCard(list, scope) {
+    var m = aggregate(list, "town");
+    if (!m.pts.length) return "";
+    var lo = Math.min.apply(null, m.pts.map(function (p) { return p.v; }));
+    var hi = Math.max.apply(null, m.pts.map(function (p) { return p.v; }));
+
+    return (
+      '<section class="card mt14 wx-card">' +
+        '<div class="card-head">' +
+          '<div class="card-title"><span class="ico-chip">' + U.icon("pin", 16) + "</span>区域施工分布</div>" +
+          '<span class="card-meta" id="wxMeta">' + scope + " 乡镇级</span>" +
+        "</div>" +
+        '<div class="wx-map" id="wxMap"></div>' +
+        '<div class="wx-leg">' +
+          '<div class="wx-bar"></div>' +
+          '<div class="wx-scale"><span>少 ' + lo + " 单</span><span>多 " + hi + " 单</span></div>" +
+        "</div>" +
+        '<div class="wx-note" id="wxNote">拖动平移，双指或 +/− 缩放；放大到街道级自动切到村级。点圆点看该处单子</div>' +
+      "</section>"
+    );
+  }
+
+  /* 点一个点 → 该处订单清单（镇级看镇，村级看村） */
+  function placeOrdersSheet(pt, list, level) {
+    var rows = list.filter(function (o) {
+      return level === "village" ? (o.town === pt.town && (o.village || "未标") === pt.name) : o.town === pt.town;
+    }).sort(function (a, b) { return D.due(b) - D.due(a); });
+    if (!rows.length) { U.toast("这里本月没有单子"); return; }
+    var quote = rows.reduce(function (a, o) { return a + (Number(o.quote) || 0); }, 0);
+    var dueAll = rows.reduce(function (a, o) { return a + D.due(o); }, 0);
+    var nGeo = rows.filter(function (o) {
+      return o.geo && typeof o.geo.lat === "number" && isFinite(o.geo.lat);
+    }).length;
+    var body = rows.map(function (o) {
+      var dd = D.due(o);
+      return (
+        '<div class="wx-orow">' +
+          '<div class="wx-orow-l"><b>' + U.esc(o.owner || "未填业主") + "</b>" +
+            '<span>' + U.esc(o.village || o.addr || "—") + "</span></div>" +
+          '<div class="wx-orow-r"><b>¥' + U.n(o.quote) + "</b>" +
+            '<span class="' + (dd > 0 ? "orange-t" : "mut") + '">' +
+            (dd > 0 ? "待收 ¥" + U.n(dd) : "已结清") + "</span></div>" +
+        "</div>"
+      );
+    }).join("");
+
+    U.sheet(
+      "<h3>" + U.esc(level === "village" ? pt.town + " · " + pt.name : pt.name) + "</h3>" +
+      '<div class="sub">' + rows.length + " 单 · " +
+        rows.reduce(function (a, o) { return a + D.rooms(o); }, 0) + " 间 · 报价 ¥" + U.n(quote) +
+        (dueAll > 0 ? " · 待收 ¥" + U.n(dueAll) : "") +
+        (nGeo ? " · " + nGeo + " 单有现场定位" : " · 按镇级坐标显示") + "</div>" +
+      '<div style="max-height:52vh;overflow-y:auto">' + body + "</div>"
+    );
+  }
+
+  /* 真地图 + 天气场覆盖层，层级跟着缩放自动切 */
+  function initMap(el, list, scope) {
+    if (!el || !w.TILEMAP || !w.HEAT) return null;
+
+    var level = "town";
+    var layer = null, layerLevel = "";
+    var shapes = w.COUNTIES || [];
+    var metaEl = document.getElementById("wxMeta");
+    var noteEl = document.getElementById("wxNote");
+
+    function viewSpan(z, vw, vh) {
+      var world = 256 * Math.pow(2, z);
+      var spanLng = vw / world * 360 * 1.5;
+      var spanLat = spanLng * (vh / Math.max(1, vw));
+      return { lng: spanLng, lat: spanLat };
+    }
+
+    function refresh() {
+      var agg = aggregate(list, level);
+      var maxV = agg.pts.reduce(function (a, p) { return Math.max(a, p.v); }, 0);
+      map.setMarkers(agg.pts.map(function (p) {
+        return {
+          lng: p.lng, lat: p.lat,
+          label: (level === "village" ? p.name : p.name.replace(/镇$/, "")) + " " + p.v,
+          title: p.name + " · " + p.v + " 单",
+          major: p.v === maxV,
+          onClick: function () { placeOrdersSheet(p, list, level); }
+        };
+      }));
+      layer = null;    /* 下一帧重算密度场 */
+
+
+      if (metaEl) {
+        metaEl.textContent = scope + (level === "village"
+          ? " 村级 · " + agg.pts.length + " 村"
+          : " 乡镇级 · " + agg.pts.length + " 镇") + (agg.miss ? " · " + agg.miss + " 单未定位" : "");
+      }
+      if (noteEl) {
+        var parts = [];
+        parts.push(level === "village" ? "已按村汇总" : "已按乡镇汇总");
+        if (agg.miss) parts.push("「" + agg.missTowns.slice(0, 2).join("、") + "」等 " + agg.miss + " 单没有坐标，未上图");
+        if (level === "village" && agg.unknown) parts.push(agg.unknown + " 单只有镇级坐标，暂且堆在镇中心");
+        parts.push("颜色为插值推算，非实测");
+        noteEl.textContent = parts.join("；");
+      }
+    }
+
+    var map = w.TILEMAP.create(el, {
+      center: [119.1, 35.8],
+      zoom: 9,
+      minZoom: 8,
+      maxZoom: 13,
+      bounds: FOUR_CITY,
+      focus: aggregate(list, "town").pts,
+      onDraw: function (ctx, proj, z, vw, vh, dpr) {
+        if (!map) return;
+        var vg = map.viewGeo();
+        /* 只在「换了层级」或「视野超出已有色场」时重算 —— 拖动时每帧重算会卡 */
+        var need = layerLevel !== level || !layer ||
+          !(layer.bb[0] <= vg[0] && layer.bb[1] <= vg[1] &&
+            layer.bb[2] >= vg[2] && layer.bb[3] >= vg[3]);
+        if (need) {
+          var agg = aggregate(list, level);
+          layer = agg.pts.length
+            ? w.HEAT.field(agg.pts, {
+                view: vg,
+                /* 村级点少又挤，幂次压低让场平缓些，不然放大就一片死红 */
+                power: level === "village" ? 1.3 : 2.6
+              })
+            : null;
+          layerLevel = level;
+        }
+        /* 村级只作底色，主要靠点看，别压得太重 */
+        if (layer) w.HEAT.paint(ctx, layer, proj, level === "village" ? 0.5 : 0.78);
+        w.HEAT.strokeShapes(ctx, shapes, proj, dpr);
+      },
+      onMove: function (lng, lat, z) {
+        var want = z >= 12 ? "village" : "town";
+        if (want !== level) { level = want; refresh(); }
+      }
+    });
+
+    refresh();
+
+    /* 视野对准有单的点，而不是整个地级范围 */
+    var agg0 = aggregate(list, "town");
+    if (agg0.pts.length) {
+      map.fitBounds([
+        Math.min.apply(null, agg0.pts.map(function (p) { return p.lng; })),
+        Math.min.apply(null, agg0.pts.map(function (p) { return p.lat; })),
+        Math.max.apply(null, agg0.pts.map(function (p) { return p.lng; })),
+        Math.max.apply(null, agg0.pts.map(function (p) { return p.lat; }))
+      ], 46);
+    }
+    return map;
+  }
+
   function townRank(list) {
     var all = D.townRank(list);
     var arr = all.slice(0, 4);
@@ -109,10 +315,35 @@
       '<section class="card mt14">' +
         '<div class="card-head">' +
           '<div class="card-title"><span class="ico-chip">' + U.icon("flame", 16) + "</span>热门乡镇施工榜</div>" +
-          '<span class="card-meta">覆盖 ' + all.length + " 个乡镇</span>" +
+          '<button type="button" class="pill xs line" id="btnAllRanks">查看全部排行</button>' +
         "</div>" + rows +
       "</section>"
     );
+  }
+
+  function rankSheet(list, level) {
+    var labels = {city:"市", district:"区", county:"县", town:"镇", village:"村"};
+    var groups = Object.create(null), missing = 0;
+    list.forEach(function (o) {
+      var g = o.geo || {}, text = [g.district, g.addr, o.addr].filter(Boolean).join(" ");
+      var val = level === "town" ? o.town : level === "village" ? o.village :
+        level === "city" ? (g.city || (text.match(/[^\s，,省市]+市/) || [])[0]) :
+        level === "district" ? (g.district && /区$/.test(g.district) ? g.district : (text.match(/[^\s，,市区县]+区/) || [])[0]) :
+        (g.county || (g.district && /县$/.test(g.district) ? g.district : (text.match(/[^\s，,市区县]+县/) || [])[0]));
+      val = String(val || "").trim();
+      if (!val || /^未标|未知/.test(val)) { missing++; return; }
+      var context = level === "village" ? String(o.town || "").trim() : "";
+      var key = context + "|" + val;
+      var row = groups[key] || (groups[key] = {name: context && context !== "未标镇" ? context + " · " + val : val, count:0, rooms:0, money:0});
+      row.count++; row.rooms += D.rooms(o); row.money += Number(o.quote) || 0;
+    });
+    var rows = Object.keys(groups).map(function (k) { return groups[k]; }).sort(function (a,b) { return b.count-a.count || b.rooms-a.rooms || a.name.localeCompare(b.name, "zh-CN"); });
+    var html = '<h3>地区施工排行</h3><div class="sub">按订单数排序 · 跟随分析页面所选月份</div><div class="fx g8" style="flex-wrap:wrap">' +
+      Object.keys(labels).map(function (k) { return '<button type="button" class="pill ' + (k === level ? 'brand' : 'line') + '" data-rank-level="' + k + '">' + labels[k] + '</button>'; }).join('') + '</div>' +
+      '<div class="sub mt12">未识别' + labels[level] + '：' + missing + ' 单</div><div style="max-height:48vh;overflow:auto">' +
+      (rows.map(function (r,i) { return '<div class="rank-item"><div class="rank-h"><span class="b8">' + (i+1) + '. ' + U.esc(r.name) + '</span><span class="rank-v"><b>' + r.count + ' 单</b><span>' + r.rooms + ' 间 · ¥' + U.n(r.money) + '</span></span></div></div>'; }).join('') || '<div class="sub">暂无可识别的地区数据</div>') + '</div>';
+    var mask = U.sheet(html);
+    mask.addEventListener('click', function (e) { var b = e.target.closest('[data-rank-level]'); if (b) { U.closeSheet(); rankSheet(list, b.getAttribute('data-rank-level')); } });
   }
 
   function collectSheet() {
@@ -289,10 +520,19 @@
       teamCard(s, scope) +
       monthBreakdown(range) +
       avgCards(s) +
+      weatherCard(list, scope) +
       townRank(list) +
       "</div>";
 
+    function drawMap() {
+      var el = document.getElementById("wxMap");
+      if (!el) return;
+      initMap(el, list, scope);
+    }
+
     function mount() {
+      var ranksBtn = document.getElementById("btnAllRanks");
+      if (ranksBtn) ranksBtn.addEventListener("click", function () { rankSheet(list, "town"); });
       var rbtn = document.getElementById("btnRange");
       if (rbtn) rbtn.addEventListener("click", function () { rangeSheet(readRange()); });
 
@@ -315,6 +555,12 @@
         });
       });
 
+      /* 画布要等布局落定才有宽高，双 rAF 兜一层；Safari 首帧偶发 0 宽 */
+      if (w.requestAnimationFrame) {
+        w.requestAnimationFrame(function () { w.requestAnimationFrame(drawMap); });
+      } else {
+        drawMap();
+      }
     }
 
     return { bar: bar, body: body, mount: mount, tab: "analytics" };

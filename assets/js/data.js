@@ -186,7 +186,7 @@
     },
     {
       id: "DW20261026-09", owner: "王学堂", title: "王学堂",
-      town: "石桥镇", village: "石桥村", addr: "石桥村 6 巷 2 号",
+      town: "石桥子镇", village: "石桥村", addr: "石桥村 6 巷 2 号",
       phone: "13800000009", main: 2, wing: 0, mode: "人工",
       quote: 700, paid: 700, status: "已结清", teams: ["t1"],
       start: "10-06", startedAt: "10-06 08:30", scheduledAt: "10-06 上午", done: "10-08", doneAt: "10-08 17:00", tags: ["纯换瓦", "小型修补"],
@@ -251,7 +251,7 @@
     },
     {
       id: "DW20261026-16", owner: "王美玲", title: "王美玲",
-      town: "石桥镇", village: "王家沟村", addr: "王家沟 3 巷 5 号",
+      town: "石桥子镇", village: "王家沟村", addr: "王家沟 3 巷 5 号",
       phone: "13800000016", main: 3, wing: 0, mode: "大包",
       quote: 2100, paid: 2100, status: "已结清", teams: ["t2"],
       start: "10-15", startedAt: "10-15 08:30", scheduledAt: "10-15 上午", done: "10-17", doneAt: "10-17 17:00", tags: ["换瓦", "防水卷材"],
@@ -310,7 +310,7 @@
     },
     {
       id: "PD-05", orderId: null, owner: "王秀英", title: "王秀英 · 老宅翻新",
-      town: "石桥镇", village: "王家沟村", addr: "王家沟 2 巷 6 号",
+      town: "石桥子镇", village: "王家沟村", addr: "王家沟 2 巷 6 号",
       phone: "13900000005", rooms: 3, budget: 2100, stage: "待排期",
       days: 1, blocker: "口径已定大包，等一队 10-25 空档插入",
       actions: ["排档期", "转施工单"]

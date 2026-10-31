@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>清理本地缓存 · 鼎筑</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100dvh;
+    display: flex; align-items: center; justify-content: center;
+    background: #f5f7fa; color: #0b132b;
+    font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+    padding: 24px;
+  }
+  .box {
+    width: 100%; max-width: 360px;
+    background: #fff; border: 1px solid rgba(11, 19, 43, 0.06);
+    border-radius: 18px; padding: 20px 18px;
+    box-shadow: 0 1px 2px rgba(15, 30, 60, 0.04), 0 10px 22px -18px rgba(15, 30, 60, 0.55);
+  }
+  h1 { margin: 0 0 6px; font-size: 16px; letter-spacing: -0.02em; }
+  p { margin: 0 0 14px; font-size: 12.5px; line-height: 1.6; color: #8c97a6; }
+  ul { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.8; color: #5b6675; }
+  .go {
+    display: block; margin-top: 16px; height: 44px; line-height: 44px;
+    text-align: center; border-radius: 11px;
+    background: #0066ff; color: #fff; font-size: 14px; font-weight: 800;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>清理本地缓存</h1>
+    <p>如果改完界面还是看到旧样子，用这一页把旧的离线缓存清掉。</p>
+    <ul id="log"><li>正在清理…</li></ul>
+    <a class="go" id="go" href="./index.html">回到 App</a>
+  </div>
+<script>
+(async function () {
+  var log = document.getElementById("log");
+  var lines = [];
+
+  try {
+    var regs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : [];
+    for (var i = 0; i < regs.length; i++) await regs[i].unregister();
+    lines.push(regs.length ? "已注销 Service Worker（" + regs.length + " 个）" : "没有注册中的 Service Worker");
+  } catch (e) { lines.push("注销 Service Worker 失败：" + e.message); }
+
+  try {
+    var keys = window.caches ? await caches.keys() : [];
+    for (var j = 0; j < keys.length; j++) await caches.delete(keys[j]);
+    lines.push(keys.length ? "已删除缓存：" + keys.join("、") : "没有离线缓存");
+  } catch (e) { lines.push("清理缓存失败：" + e.message); }
+
+  try { sessionStorage.removeItem("dingzhu.sw.reloaded"); } catch (e) {}
+
+  log.innerHTML = lines.map(function (t) { return "<li>" + t + "</li>"; }).join("");
+  setTimeout(function () { location.replace("./index.html"); }, 1000);
+})();
+</script>
+</body>
+</html>

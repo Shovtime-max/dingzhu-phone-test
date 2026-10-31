@@ -2321,3 +2321,207 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .cal-month-page > .cal { height: 100%; }
 .cal-month-page .cal-grid { grid-auto-rows: minmax(0, 1fr); }
 .cal-month-page .cal-cell { min-height: 0; overflow: hidden; padding: 5px 4px; }
+
+/* ---------- 区域施工分布 · 天气场 ---------- */
+.wx-card .wx-map {
+  position: relative;
+  height: 320px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #eef1f6;
+  isolation: isolate;
+}
+
+/* 瓦片地图 */
+.tm { position: relative; touch-action: none; cursor: grab;
+      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.tm.grabbing { cursor: grabbing; }
+.tm-tiles { position: absolute; inset: 0; z-index: 1; }
+.tm-tile { position: absolute; left: 0; top: 0; width: 256px; height: 256px;
+           opacity: 0; transition: opacity .22s ease-out; will-change: transform;
+           -webkit-user-drag: none;
+           /* 压一层对比：色场盖上去之后路网还能透出来，像天气 App 那样 */
+           filter: contrast(1.14) saturate(.8) brightness(1.04); }
+.tm-tile.on { opacity: 1; }
+.tm-canvas { position: absolute; inset: 0; width: 100%; height: 100%;
+             z-index: 2; pointer-events: none; }
+/* 标注层压在色场之上，地名才不会被天气场吃掉 */
+.tm-labs { z-index: 3; }
+.tm-labs .tm-tile { filter: none; }
+.tm-markers { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.tm-mk { position: absolute; left: 0; top: 0; width: 26px; height: 26px;
+         margin: -13px 0 0 -13px; padding: 0; border: 0; background: none;
+         pointer-events: auto; cursor: pointer; will-change: transform; }
+.tm-mk i { position: absolute; left: 8px; top: 8px; width: 10px; height: 10px;
+           box-sizing: border-box; border-radius: 50%;
+           background: #fff; border: 2px solid rgba(11, 19, 43, .62);
+           box-shadow: 0 1px 3px rgba(8, 16, 30, .35); }
+.tm-mk.major i { left: 6px; top: 6px; width: 14px; height: 14px; border-color: #b3121a; }
+.tm-mk span { position: absolute; left: 22px; top: 3px; white-space: nowrap;
+              font-size: 10px; font-weight: 800; line-height: 1.5; color: var(--ink);
+              background: rgba(255, 255, 255, .93); padding: 0 5px; border-radius: 99px;
+              box-shadow: 0 1px 3px rgba(8, 16, 30, .18); }
+.tm-mk.major span { left: 24px; color: #8e0f16; }
+.tm-mk.nolab span { display: none; }
+
+/* 点中某一处：它跳出来，其余退到后面 */
+.tm-mk.sel i { left: 4px; top: 4px; width: 18px; height: 18px;
+               background: #0B62D0; border-color: #fff;
+               box-shadow: 0 0 0 3px rgba(11, 98, 208, .22), 0 2px 6px rgba(8, 16, 30, .4); }
+.tm-mk.sel span { left: 26px; top: 2px; background: #0B62D0; color: #fff;
+                  box-shadow: 0 2px 8px rgba(11, 98, 208, .45); }
+.tm-mk.dim { opacity: .42; }
+.tm-mk.dim i { transform: scale(.8); }
+
+/* 我的位置：蓝点 + 呼吸圈 */
+.tm-me { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 4;
+         pointer-events: none; opacity: 0; transition: opacity .2s ease-out; }
+.tm-me.on { opacity: 1; }
+.tm-me i { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px;
+           border-radius: 50%; background: #0B62D0; border: 2.5px solid #fff;
+           box-shadow: 0 1px 6px rgba(11, 98, 208, .55); }
+.tm-me i::after { content: ""; position: absolute; left: -8px; top: -8px;
+                  right: -8px; bottom: -8px; border-radius: 50%;
+                  border: 2px solid rgba(11, 98, 208, .5);
+                  animation: tmPulse 2.1s ease-out infinite; }
+@keyframes tmPulse {
+  0%   { transform: scale(.55); opacity: .85; }
+  100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* 定位按钮：十字准星 */
+.tm-ctrl button.tm-loc { position: relative; }
+.tm-ctrl button.tm-loc i { position: absolute; left: 50%; top: 50%;
+      width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+      border-radius: 50%; background: currentColor; }
+.tm-ctrl button.tm-loc i::after { content: ""; position: absolute; left: 50%; top: 50%;
+      width: 3px; height: 3px; margin: -1.5px 0 0 -1.5px;
+      border-radius: 50%; background: #fff; }
+.tm-ctrl button.tm-loc.busy { opacity: .55; animation: tmLoch 1s ease-in-out infinite; }
+@keyframes tmLoch { 50% { opacity: .95; } }
+.tm-ctrl { position: absolute; right: 8px; bottom: 8px; z-index: 5;
+           display: flex; flex-direction: column; gap: 5px; }
+.tm-ctrl button { width: 30px; height: 30px; border: 0; border-radius: 9px;
+                  background: rgba(255, 255, 255, .95); color: var(--ink);
+                  font: inherit; font-size: 17px; font-weight: 700; line-height: 1;
+                  cursor: pointer; box-shadow: 0 1px 4px rgba(8, 16, 30, .22); }
+.tm-ctrl button:active { background: #eef1f6; }
+.tm-attrib { position: absolute; left: 6px; bottom: 4px; z-index: 5;
+             font-size: 8.5px; font-weight: 600; color: #5b6675;
+             background: rgba(255, 255, 255, .78); padding: 0 4px; border-radius: 3px;
+             pointer-events: none; }
+
+/* 点镇弹出的订单行 */
+.wx-orow { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+           padding: 10px 12px; border-radius: 12px; background: var(--line-soft);
+           margin-bottom: 8px; }
+.wx-orow-l { min-width: 0; }
+.wx-orow-l b { display: block; font-size: 13px; font-weight: 800; color: var(--ink); }
+.wx-orow-l span { display: block; margin-top: 2px; font-size: 11px; font-weight: 600;
+                  color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wx-orow-r { flex: none; text-align: right; }
+.wx-orow-r b { display: block; font-size: 13px; font-weight: 800; color: var(--ink); }
+.wx-orow-r span { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 700; }
+.wx-card .wx-leg { margin-top: 10px; }
+.wx-card .wx-bar {
+  height: 7px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #3a4cc0, #2f8fd8, #35c2c9, #7ed957, #ffe14d, #ff9f2e, #f2412e, #b3121a);
+}
+.wx-card .wx-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.wx-card .wx-note {
+  margin-top: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--ink-4);
+}
+.wx-card .wx-note.warn { color: #b06000; }
+
+/* ---------- 档期抽屉里当天路线图 ---------- */
+.dx-map {
+  position: relative;
+  height: 304px;
+  margin: 2px 0 8px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #eef1f6;
+  isolation: isolate;
+}
+/* 里程行 + 导航按钮同一行：按钮只在点中某一处后出现 */
+.dx-maprow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dx-maprow .dx-mapmeta { flex: 1 1 auto; min-width: 0; }
+.dx-navbtn {
+  flex: none;
+  height: 27px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 99px;
+  background: #0B62D0;
+  color: #fff;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 2px 7px rgba(11, 98, 208, .3);
+}
+.dx-navbtn:active { transform: translateY(1px); }
+.dx-navbtn[hidden] { display: none; }
+
+/* 选导航软件：两个 App 一个取消，横排，不弹层（弹层会把当前抽屉顶掉） */
+.dx-navpick {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.dx-navpick[hidden] { display: none; }
+.dx-navpick a,
+.dx-navpick button {
+  flex: 1 1 0;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+.dx-navpick a[data-nav="amap"] { border-color: rgba(11, 98, 208, .45); color: #0B62D0; }
+.dx-navpick a:active,
+.dx-navpick button:active { background: var(--line-soft); }
+.dx-navpick button[data-nav="off"] { flex: 0 0 64px; color: var(--ink-3); }
+.dx-navpick a[hidden] { display: none; }
+
+.dx-maphint {
+  margin: -8px 0 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-4);
+}
+.dx-mapmeta {
+  margin-bottom: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.55;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  word-break: break-word;
+}
