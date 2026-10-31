@@ -483,6 +483,12 @@
      · 新增存 localStorage，刷新后还在；「清空新增」可回到原始演示状态
      ========================================================================== */
   var BACKUP_BASELINE = JSON.stringify({orders:ORDERS, pending:PENDING, teams:BASE_TEAMS, schedule:DETAIL_10, base:BASE});
+  var LEGACY_BACKUP_BASELINE = (function () {
+    var b = JSON.parse(BACKUP_BASELINE);
+    b.orders.forEach(function (o) { if (o.id === "DW20261026-09" || o.id === "DW20261026-16") o.town = "石桥镇"; });
+    b.pending.forEach(function (p) { if (p.id === "PD-05") p.town = "石桥镇"; });
+    return JSON.stringify(b);
+  })();
   var DEFAULT_PROCESSES = ["换瓦", "脊瓦加固", "红瓦换新", "防水卷材", "天沟检修", "拆除清运"];
   var LS_KEY = "dingzhu.adds.v1";
   var ADDED = emptyAdds(), lastRaw = null, storageError = "";
@@ -762,10 +768,23 @@
 
   function applyAdds(a) {
     ADDED = a;
+    if (a.cleanStart === true) {
+      var legacy = JSON.parse(BACKUP_BASELINE);
+      var orderIds = new Set(legacy.orders.map(function (o) { return o.id; }));
+      var pendingIds = new Set(legacy.pending.map(function (p) { return p.id; }));
+      for (var oi = ORDERS.length - 1; oi >= 0; oi--) if (orderIds.has(ORDERS[oi].id)) ORDERS.splice(oi, 1);
+      for (var pi = PENDING.length - 1; pi >= 0; pi--) if (pendingIds.has(PENDING[pi].id)) PENDING.splice(pi, 1);
+      Object.keys(MONTHS).forEach(function (key) {
+        MONTHS[key].days.forEach(function (day) {
+          day.slots.forEach(function (slot) { slot.items = (slot.items || []).filter(function (item) { return !orderIds.has(item.oid); }); });
+          if (!day.slots.some(function (slot) { return slot.items.length; })) day.full = false;
+        });
+      });
+    }
 
     /* 队伍：先回到内置基线，再按「删除 → 改动 → 新增」叠加 */
     TEAMS.length = 0;
-    BASE_TEAMS.forEach(function (t) { TEAMS.push(copy(t)); });
+    BASE_TEAMS.forEach(function (t) { var item = copy(t); if (a.cleanStart === true) { item.alias = ""; item.leader = ""; item.members = []; } TEAMS.push(item); });
     (a.teamDeleted || []).forEach(function (id) {
       for (var i = TEAMS.length - 1; i >= 0; i--) if (TEAMS[i].id === id) TEAMS.splice(i, 1);
     });
@@ -802,7 +821,7 @@
     });
     Object.keys(a.patches).forEach(function (id) {
       var p = pendingById(id); if (!p) return;
-      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams"].forEach(function (k) {
+      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams", "town"].forEach(function (k) {
         if (a.patches[id][k] !== undefined) p[k] = copy(a.patches[id][k]);
       });
     });
@@ -856,7 +875,7 @@
   }
   function backupOrders(a) {
     var base = JSON.parse(BACKUP_BASELINE), map = {};
-    base.orders.concat(a.orders).forEach(function (o) { map[o.id] = copy(o); });
+    (a.cleanStart === true ? [] : base.orders).concat(a.orders).forEach(function (o) { map[o.id] = copy(o); });
     Object.keys(a.orderPatches).forEach(function (id) { if (map[id]) Object.assign(map[id], a.orderPatches[id]); });
     return map;
   }
@@ -902,7 +921,7 @@
       if (t.color !== undefined && !/^#[0-9a-f]{6}$/i.test(t.color)) throw new Error("备份中的队伍颜色不正确");
       if (t.members !== undefined && (!Array.isArray(t.members) || t.members.some(function (m) { return !object(m) || typeof m.name !== "string"; }))) throw new Error("备份中的队员格式不正确");
     });
-    var orders = backupOrders(a), pendingIds = new Set(JSON.parse(BACKUP_BASELINE).pending.concat(a.pending).map(function (p) { return p.id; }));
+    var orders = backupOrders(a), pendingIds = new Set((a.cleanStart === true ? [] : JSON.parse(BACKUP_BASELINE).pending).concat(a.pending).map(function (p) { return p.id; }));
     Object.keys(orders).forEach(function (id) { fields(orders[id]); });
     Object.keys(a.orderPatches).forEach(function (id) { if (!orders[id] && !a.trash.some(function (t) { return t.kind === "order" && t.id === id; })) throw new Error("备份中的订单关联不完整"); });
     Object.keys(a.patches).forEach(function (id) { if (!pendingIds.has(id) && !a.trash.some(function (t) { return t.kind === "pending" && t.id === id; })) throw new Error("备份中的线索关联不完整"); });
@@ -920,7 +939,7 @@
   }
   function backupSummary(a) {
     var base = JSON.parse(BACKUP_BASELINE), orders = backupOrders(a), pending = {};
-    base.pending.concat(a.pending).forEach(function (p) { pending[p.id] = copy(p); });
+    (a.cleanStart === true ? [] : base.pending).concat(a.pending).forEach(function (p) { pending[p.id] = copy(p); });
     Object.keys(a.patches).forEach(function (id) { if (pending[id]) Object.assign(pending[id], a.patches[id]); });
     a.trash.forEach(function (t) { delete (t.kind === "order" ? orders : pending)[t.id]; });
     var rows = Object.keys(orders).map(function (id) { return orders[id]; });
@@ -1326,7 +1345,7 @@
     return commit(function (next) {
       if (!pendingById(p.id)) throw new Error("线索不存在");
       var patch = Object.assign({}, next.patches[p.id]);
-      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams"].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
+      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams", "town"].forEach(function (k) { if (p[k] !== undefined) patch[k] = p[k]; });
       next.patches[p.id] = patch; return p.id;
     }).then(pendingById);
   }
@@ -1341,7 +1360,7 @@
   function removeProcessPreset(name) {
     return commit(function (next) { next.processPresets = (next.processPresets || DEFAULT_PROCESSES).filter(function (s) { return s !== name; }); });
   }
-  function getBase() { return copy(ADDED.base || BASE); }
+  function getBase() { var base = ADDED.base || (ADDED.cleanStart === true ? null : BASE); return base ? copy(base) : null; }
   function saveBase(place) {
     return commit(function (next) {
       if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lng)) throw new Error("请先选择有效的地图搜索结果");
@@ -1452,6 +1471,7 @@
   try {
     lastRaw = w.localStorage.getItem(LS_KEY);
     if (lastRaw !== null) applyAdds(validateAdds(migrateOrderIds(JSON.parse(lastRaw))));
+    else { ADDED.cleanStart = true; applyAdds(ADDED); }
   } catch (e) { storageError = "本地数据无法读取，已停止写入；请先备份并检查存储"; }
 
   /* 老数据（含演示种子）的「已结清」只写在 status 文案里，现在结清是独立标记。
@@ -1512,7 +1532,7 @@
     var mine = ADDED.orders.some(function (x) { return x.id === o.id; });
     if (mine || ADDED.orderPatches[o.id]) return;
     var s = state(o);
-    if ((s === "done" || s === "settled") && o.media == null && !o.sample) o.sample = 2;
+    if (ADDED.cleanStart !== true && (s === "done" || s === "settled") && o.media == null && !o.sample) o.sample = 2;
   });
 
   /* ---------- 派生计算 ---------- */
@@ -1634,7 +1654,7 @@
     getBase: getBase, saveBase: saveBase,
     saveProcessPresets: saveProcessPresets,
     setTeams: setTeams,
-    BASE: BASE,
+    BASE: ADDED.cleanStart === true ? null : BASE,
     TEAMS: TEAMS,
     teamById: teamById,
     teamShort: teamShort,
@@ -1702,6 +1722,7 @@
     assertFresh: assertFresh,
     backupSnapshot: backupSnapshot,
     backupBaseline: function () { return BACKUP_BASELINE; },
+    legacyBackupBaseline: function () { return LEGACY_BACKUP_BASELINE; },
     checkBackupState: checkBackupState,
     backupOrderIds: backupOrderIds,
     backupSummary: backupSummary,

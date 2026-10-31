@@ -18,6 +18,7 @@
   }
   function hex(bytes) { return Array.prototype.map.call(bytes, function (x) { return ('0' + x.toString(16)).slice(-2); }).join(''); }
   function baseline() { return digest(textBytes(D.backupBaseline())).then(hex); }
+  function legacyBaseline() { return digest(textBytes(D.legacyBackupBaseline())).then(hex); }
   function crc32(blob) {
     var crc = 0xffffffff, offset = 0;
     function next() {
@@ -76,8 +77,15 @@
           try { manifest = JSON.parse(new w.TextDecoder('utf-8', {fatal:true}).decode(json)); }
           catch (e) { throw new Error('备份资料无法解析'); }
           if (!manifest || manifest.app !== 'dingzhu' || manifest.version !== 1 || typeof manifest.createdAt !== 'string' || !Number.isFinite(Date.parse(manifest.createdAt)) || !Array.isArray(manifest.media) || !manifest.state) throw new Error('备份版本或格式不受支持');
-          return baseline().then(function (expected) {
-            if (manifest.baseline !== expected) throw new Error('备份与当前程序的数据版本不兼容，请使用生成备份时的版本');
+          return Promise.all([baseline(), legacyBaseline()]).then(function (versions) {
+            var expected = versions[0], old = manifest.baseline === versions[1] && manifest.baseline !== expected;
+            if (manifest.baseline !== expected && !old) throw new Error('备份与当前程序的数据版本不兼容，请使用生成备份时的版本');
+            if (old && !manifest.state.cleanStart) {
+              manifest.state.orderPatches = manifest.state.orderPatches || {};
+              ['DW20261026-09', 'DW20261026-16'].forEach(function (id) { var p = manifest.state.orderPatches[id] || (manifest.state.orderPatches[id] = {}); if (p.town === undefined) p.town = '石桥镇'; });
+              manifest.state.patches = manifest.state.patches || {};
+              var p = manifest.state.patches['PD-05'] || (manifest.state.patches['PD-05'] = {}); if (p.town === undefined) p.town = '石桥镇';
+            }
             var state = D.checkBackupState(manifest.state), allowed = new Set(D.backupOrderIds(state));
             var ids = new Set(), counts = {}, offset = HEADER + length, records = [];
             manifest.media.forEach(function (m) {

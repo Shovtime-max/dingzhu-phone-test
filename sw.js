@@ -11,9 +11,9 @@
  *     不会卡在 waiting 等用户关掉所有标签页
  *   · 缓存名带版本号，activate 时清掉旧版本的桶
  */
-const CACHE = 'dingzhu-shell-v24-daynav';
+const CACHE = 'dingzhu-shell-v25-icon';
 const ASSETS = [
-  './', './index.html',
+  './', './index.html', './apple-touch-icon.png',
   './assets/css/tokens.css', './assets/css/app.css', './assets/css/views.css',
   './assets/js/ui.js', './assets/js/profile.js', './assets/js/data.js',
   './assets/js/media.js', './assets/js/backup.js', './assets/js/geo.js',

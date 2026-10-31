@@ -8,7 +8,7 @@
   "use strict";
 
   var KEY = "dingzhu.profile.v1";
-  var DEFAULT = { name: "王队", avatar: "" };
+  var DEFAULT = { name: "我的", avatar: "" };
   var MAX_NAME = 8;
   var MAX_DATAURL = 260 * 1024;   /* 压缩后正常在 15KB 内，超过说明不对，直接不收 */
 
