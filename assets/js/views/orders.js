@@ -87,7 +87,7 @@
         '<div class="oc-tags">' +
           '<span class="pd-tag">' + D.rooms(o) + " 间</span>" +
           '<span class="pd-tag">' + o.mode + "</span>" +
-          '<span class="pd-tag">' + D.teamShort(o.teams) + "</span>" +
+          '<span class="pd-tag" role="button" tabindex="0" data-team-info="' + U.esc((o.teams || []).join(',')) + '">' + U.esc(D.teamShort(o.teams)) + "</span>" +
           o.tags.slice(0, 1).map(function (t) { return '<span class="pd-tag">' + U.esc(t) + "</span>"; }).join("") +
         "</div>" +
         '<div class="oc-foot">' +

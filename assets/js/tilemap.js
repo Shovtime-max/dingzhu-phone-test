@@ -61,7 +61,7 @@
     var frame = 0, alive = true, moved = false;
     var tileEls = Object.create(null);
     var labEls = Object.create(null);
-    var markers = [];
+    var markers = [], tileLoaded = false;
 
     /* 同一个容器被二次初始化时先收掉上一份，否则手势监听会叠成两套 */
     if (el.__tm) { try { el.__tm.destroy(); } catch (e) {} }
@@ -79,6 +79,8 @@
     labs.className = "tm-tiles tm-labs";
     var mk = document.createElement("div");
     mk.className = "tm-markers";
+    var tileError = document.createElement("div");
+    tileError.className = "tm-error"; tileError.textContent = "地图加载失败，请检查网络"; tileError.hidden = true;
     var ctrl = document.createElement("div");
     ctrl.className = "tm-ctrl";
     ctrl.innerHTML = (opt.onLocate
@@ -101,6 +103,7 @@
     el.appendChild(mk);
     el.appendChild(meEl);
     el.appendChild(ctrl);
+    el.appendChild(tileError);
     el.appendChild(at);
 
     var ctx = cv.getContext("2d");
@@ -110,8 +113,9 @@
       vh = el.clientHeight;
       dpr = Math.min(2, w.devicePixelRatio || 1);
       if (!vw || !vh) return false;
-      cv.width = Math.round(vw * dpr);
-      cv.height = Math.round(vh * dpr);
+      var width = Math.round(vw * dpr), height = Math.round(vh * dpr);
+      if (cv.width !== width) cv.width = width;
+      if (cv.height !== height) cv.height = height;
       return true;
     }
 
@@ -160,7 +164,8 @@
             img.alt = "";
             img.decoding = "async";
             img.draggable = false;
-            img.onload = function () { this.classList.add("on"); };
+            img.onload = function () { this.classList.add("on"); if (container === layer) { tileLoaded = true; tileError.hidden = true; } };
+            img.onerror = function () { if (container === layer && !tileLoaded) tileError.hidden = false; };
             img.src = tileUrl(tpl, st.z, wx, j);
             store[key] = img;
             container.appendChild(img);
@@ -315,7 +320,8 @@
     }
 
     el.addEventListener("pointerdown", function (e) {
-      if (e.target.closest(".tm-ctrl") || e.target.closest(".tm-mk")) return;
+      if (e.target.closest(".tm-ctrl")) return;
+      if (e.target.closest(".tm-mk")) { movedFar = false; return; }
       var p = local(e);
       pts[e.pointerId] = p;
       el.setPointerCapture && el.setPointerCapture(e.pointerId);
@@ -337,7 +343,7 @@
         var d = pinchDist();
         if (pinch.d > 0) {
           var dz = Math.log2(d / pinch.d);
-          if (Math.abs(dz) > 0.16) {
+          if (Math.abs(dz) >= 0.5) {
             setZoom(st.z + (dz > 0 ? 1 : -1), pinchMid());
             pinch.d = d;
           }

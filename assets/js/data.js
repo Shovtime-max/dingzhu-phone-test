@@ -506,7 +506,7 @@
     return {
       orders: [], pending: [], slots: {}, moved: {}, patches: {}, orderPatches: {}, trash: [],
       /* 队伍：新增的整条记录 / 对内置队的改动 / 被删掉的内置队 id */
-      teams: [], teamPatches: {}, teamDeleted: [], processPresets: null, base: null,
+      teams: [], teamPatches: {}, teamDeleted: [], processPresets: null, base: null, fullDays: {},
       revision: 0
     };
   }
@@ -530,6 +530,8 @@
       if (a[k] === undefined) a[k] = {};
       if (!safeMap(a[k])) throw new Error("本地补丁格式异常，已停止写入");
     });
+    if (a.fullDays === undefined) a.fullDays = {};
+    if (!safeMap(a.fullDays) || !Object.keys(a.fullDays).every(function (key) { return dateISO(key) === key && typeof a.fullDays[key] === "boolean"; })) throw new Error("排满标记格式不正确，已停止写入");
     if (a.processPresets !== undefined && a.processPresets !== null &&
         (!Array.isArray(a.processPresets) || a.processPresets.length > 30 || !a.processPresets.every(function (x) { return typeof x === "string" && x.trim() && x.length <= 20; })))
       throw new Error("工序预设格式不正确，已停止写入");
@@ -837,6 +839,11 @@
         delete slot.free;
       });
     });
+    Object.keys(a.fullDays || {}).forEach(function (iso) {
+      var month = monthOfDate(iso);
+      var day = month && month.days[Number(iso.slice(8, 10)) - 1];
+      if (day) day.full = a.fullDays[iso];
+    });
     recalcStatus();
   }
   function commit(change) {
@@ -972,7 +979,7 @@
     o.scheduledOn = iso;
     return true;
   }
-  function createOrder(input, date, ampm, pendingId, customProcesses) {
+  function createOrder(input, date, ampm, pendingId, customProcesses, allowStack) {
     return commit(function (next) {
       var p = pendingId ? pendingById(pendingId) : null;
       if (pendingId && !p) throw new Error("这条线索不存在，请刷新后重试");
@@ -989,7 +996,7 @@
       }
       if (!validId(o.id) || byId(o.id)) throw new Error("订单号重复或无效，请重新提交");
       o.createdOn = TODAY.iso;
-      if (date) stageSlot(next, date, ampm, o);
+      if (date) stageSlot(next, date, ampm, o, allowStack);
       mergeCustomProcesses(next, customProcesses);
       next.orders.push(o);
       if (p) next.patches[p.id] = Object.assign({}, next.patches[p.id], {
@@ -1688,6 +1695,7 @@
     settleOrder: settleOrder,
     parseMoney: parseMoney,
     fullSlotDate: fullSlotDate,
+    setDayFull: function (iso, full) { return commit(function (next) { next.fullDays[iso] = !!full; }); },
     storageError: function () { return storageError; },
     putIntoSlot: putIntoSlot,
     scheduleOrder: scheduleOrder,

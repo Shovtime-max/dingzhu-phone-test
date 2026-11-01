@@ -2525,3 +2525,27 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
   letter-spacing: 0.01em;
   word-break: break-word;
 }
+.day-status{flex:none;width:24px;height:24px;border:0;border-radius:50%;background:#279d65;color:#fff;font-family:inherit;font-size:12px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}.day-status.is-full,.cal-status.is-full{background:#d83838;color:#fff}.day-status:focus-visible{outline:2px solid #1465cb;outline-offset:3px}.day-status:disabled{opacity:.55}.day-status-row{display:flex;align-items:center;gap:9px;margin:12px 0;color:var(--ink-3);font-size:12px}.cal-status{flex:none;width:12px;height:12px;background:#279d65;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:9px;line-height:1;font-weight:700}.cal-cell.full{border-color:var(--line-hair)}.ag-day[data-open-day],.ag-free{cursor:pointer}.dx-job + .dx-free{margin-top:8px}
+.tm-mk.sel::before{content:"";position:absolute;inset:1px;border:2px solid #1672db;border-radius:50%;animation:point-radar 2s ease-out infinite;pointer-events:none}@keyframes point-radar{0%{transform:scale(.65);opacity:.7}100%{transform:scale(1.6);opacity:0}}@media(prefers-reduced-motion:reduce){.tm-mk.sel::before{animation:none}}
+
+.cal-sw.full{background:#d83838;border-color:#d83838;border-radius:50%}
+
+/* 当天地图：浅色地图卡片与紧凑浮动控件 */
+.dx-map-title{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px}
+.dx-map-title b{display:block;color:#172333;font-size:16px;letter-spacing:-.01em}
+.dx-map-title span{display:block;margin-top:3px;color:#68788b;font-size:12px}
+.dx-point-list{display:flex;gap:7px;overflow-x:auto;overscroll-behavior-inline:contain;padding:1px 1px 10px;scrollbar-width:none}
+.dx-point-list::-webkit-scrollbar{display:none}
+.dx-point{flex:none;border:1px solid #dce4ed;background:#f5f7fa;color:#34465b;border-radius:18px;padding:8px 12px;font-family:inherit;font-size:12px;font-weight:600;line-height:1.2;cursor:pointer}
+.dx-point.start{background:#e9f3ff;border-color:#a5caf6;color:#145db6}.dx-point.end{background:#fff1e6;border-color:#f5c3a2;color:#ab4c17}
+.dx-map{height:330px;border-radius:20px;background:#e8ece8;box-shadow:0 1px 2px rgba(20,36,50,.09);margin-bottom:10px}
+.dx-map .tm-tile{filter:saturate(.75) brightness(1.04)}.dx-map .tm-labs .tm-tile{filter:none}
+.dx-map .tm-ctrl{right:12px;bottom:14px;gap:7px}.dx-map .tm-ctrl button{width:40px;height:40px;border-radius:13px;background:rgba(255,255,255,.94);color:#2877d3;box-shadow:0 2px 12px rgba(30,52,70,.16)}
+.dx-map .tm-mk i{width:14px;height:14px;left:6px;top:6px;background:#2878dc;border:2px solid white;box-shadow:0 2px 7px rgba(24,59,97,.35)}
+.dx-map .tm-mk span{background:rgba(255,255,255,.95);color:#25384d;font-weight:700;padding:2px 7px;border-radius:9px;box-shadow:0 2px 8px rgba(25,46,65,.16)}
+.dx-map .tm-mk.sel i{width:18px;height:18px;left:4px;top:4px;background:#176ada}.dx-map .tm-mk.sel span{background:#176ada;color:white}
+.dx-maprow{padding:3px 2px}.dx-maphint{padding:3px 2px 0}.dx-point:focus-visible,.dx-map .tm-ctrl button:focus-visible{outline:2px solid #1268cd;outline-offset:2px}
+
+.tm-error{position:absolute;z-index:6;top:12px;left:50%;transform:translateX(-50%);max-width:90%;background:rgba(255,255,255,.95);color:#7d3f1c;padding:8px 12px;border-radius:10px;font-size:12px;box-shadow:0 2px 10px rgba(30,45,60,.14);pointer-events:none}.tm-error[hidden]{display:none}
+
+.cal-hd{gap:2px}.cal-cell.today .cal-d{width:19px;height:19px;flex:none}

@@ -207,7 +207,7 @@
         return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
       });
       var ink = rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722 > 0.179 ? "#000000" : "#FFFFFF";
-      return '<span class="ag-team" style="--team-color:' + color + ';--team-ink:' + ink + '">' + U.esc(t.name) + '</span>';
+      return '<span class="ag-team" role="button" tabindex="0" data-team-info="' + U.esc(t.id) + '" style="--team-color:' + color + ';--team-ink:' + ink + '">' + U.esc(t.name) + '</span>';
     }).join("") + '</span>';
   }
 
@@ -246,7 +246,7 @@
       }).join("");
     } else {
       body = '<div class="ag-free" data-day="' + day.date + '" data-ampm="' + slot.ampm + '">' +
-        U.icon("plus", 11) + "<span>" + (slot.free || (slot.ampm + " 空闲 · 可排单")) + "</span>" +
+        "<span>" + (slot.free || (slot.ampm + " 空闲")) + "</span>" +
         nearBadge(day) + "</div>";
     }
     return (
@@ -264,7 +264,7 @@
       body = '<div class="ag-slots"><div class="ag-slot" data-day="' + d.date + '" data-ampm="上午">' +
         '<span class="ag-ampm">全天</span>' +
         '<div class="ag-items"><div class="ag-free" data-day="' + d.date + '" data-ampm="上午">' +
-        U.icon("plus", 11) + "<span>全天可排 · 点此排单</span>" + nearBadge(d) + "</div></div>" +
+        "<span>全天空闲 · 点击查看</span>" + nearBadge(d) + "</div></div>" +
         "</div></div>";
     } else {
       body = '<div class="ag-slots">' + d.slots.map(function (s) { return slotHtml(s, d); }).join("") + "</div>";
@@ -272,8 +272,8 @@
 
     return (
       '<div class="ag-row' + (d.status === "today" ? " today" : "") + '">' +
-        '<div class="ag-day">' +
-          '<span class="ag-dot" aria-hidden="true"></span>' +
+        '<div class="ag-day" data-open-day="' + d.date + '">' +
+          '<button type="button" class="day-status' + (d.full ? " is-full" : "") + '" data-full-day="' + d.date + '" aria-label="' + (d.full ? "已排满，点击取消" : "未排满，点击标记排满") + '" aria-pressed="' + !!d.full + '">' + (d.full ? "满" : "") + "</button>" +
           '<b class="ag-dnum">' + d.date + "</b>" +
           '<span class="ag-week">' + d.week + "</span>" +
           metaHtml(d) +
@@ -387,7 +387,8 @@
     if (d.full) cls += " full";
     if (dimByFilter(d)) cls += " dim";
     return '<button type="button" class="' + cls + '" data-day="' + d.date + '">' +
-      '<span class="cal-hd"><b class="cal-d">' + d.day + "</b>" + wx + "</span>" +
+      '<span class="cal-hd"><b class="cal-d">' + d.day + "</b>" +
+      (d.full ? '<span class="cal-status is-full" aria-label="已排满">满</span>' : "") + wx + "</span>" +
       (d.lunar ? '<span class="cal-lun">' + U.esc(d.lunar) + "</span>" : "") +
       villsHtml(d) +
       "</button>";
@@ -405,7 +406,7 @@
         '<span><span class="cal-vill doing">施工中</span></span>' +
         '<span><span class="cal-vill done">已完工</span></span>' +
         '<span><span class="cal-vill settled">已结清</span></span>' +
-        '<span><i class="cal-sw full"></i>橙框 = 整天排满</span>' +
+        '<span><i class="cal-sw full"></i>红点“满” = 整天排满</span>' +
       "</div>";
 
     return '<div class="cal">' + head +
@@ -494,289 +495,76 @@
      · 我的位置从哪来：GPS / 上次定位缓存 → 都没有就按当天第一处（文案里写明）
      ========================================================================== */
   function initDayMap(route) {
-    var el = document.getElementById("dxMap");
-    var metaEl = document.getElementById("dxMapMeta");
-    var hintEl = document.getElementById("dxMapHint");
-    if (!el || !w.TILEMAP || !route.pts.length) return;
-
-    var sel = null;        /* 选中的点，null = 看整趟 */
-    var me = null;         /* 我的位置 { lat, lng, src } */
-    var pending = 0;       /* 正在算的请求数 */
-    var map = null;
-
-    var navBtn = document.getElementById("dxNavBtn");
-    var navPick = document.getElementById("dxNavPick");
-
-    route.real = route.real || null;
-
-    /* 手机是苹果才给苹果地图选项，安卓上那个链接只会开网页版，没用 */
-    function isApple() {
-      var ua = (w.navigator && w.navigator.userAgent) || "";
-      return /iPad|iPhone|iPod|Macintosh/.test(ua);
-    }
-    if (navPick && !isApple()) {
-      var ap = navPick.querySelector('[data-nav="apple"]');
-      if (ap) ap.hidden = true;
-    }
-
-    /* 只传目的地，起点交给导航软件自己按 GPS 定位 —— 比传「今天第一处」准
-       坐标是高德 GCJ-02，高德与国内苹果地图都直接用，不需要纠偏 */
-    function navUrl(kind, p) {
-      var name = p.village || p.town || "目的地";
-      var lat = Number(p.lat).toFixed(6), lng = Number(p.lng).toFixed(6);
-      if (kind === "apple") {
-        return "https://maps.apple.com/?daddr=" + lat + "," + lng +
-               "&q=" + encodeURIComponent(name) + "&dirflg=d";
-      }
-      /* 装了高德直接唤起 App，没装落到高德网页版，一个链接通吃 */
-      return "https://uri.amap.com/navigation?to=" + lng + "," + lat + "," +
-             encodeURIComponent(name) +
-             "&mode=car&coordinate=gaode&callnative=1&src=dingzhu";
-    }
-
-    function updateNav(p) {
-      if (!navBtn) return;
-      navBtn.hidden = !p;
-      if (!p) { if (navPick) navPick.hidden = true; return; }
-      if (!navPick) return;
-      var a1 = navPick.querySelector('[data-nav="amap"]');
-      var a2 = navPick.querySelector('[data-nav="apple"]');
-      if (a1) a1.setAttribute("href", navUrl("amap", p));
-      if (a2) a2.setAttribute("href", navUrl("apple", p));
-    }
-
-    if (navBtn) {
-      navBtn.addEventListener("click", function () {
-        if (!sel || !navPick) return;
-        navPick.hidden = !navPick.hidden;
-      });
-    }
-    if (navPick) {
-      navPick.addEventListener("click", function (e) {
-        var off = e.target.closest('[data-nav="off"]');
-        if (off) { navPick.hidden = true; return; }
-        /* 点的是两个 <a>，让浏览器自己跳，不拦默认行为 */
-        if (e.target.closest("a[data-nav]")) navPick.hidden = true;
-      });
-    }
-
-    var towns = {};
-    route.pts.forEach(function (p) { towns[p.town] = 1; });
-    var crossTown = Object.keys(towns).length > 1;
-
-    function fmtMin(m) {
-      return (w.GEO && w.GEO.fmtMin) ? w.GEO.fmtMin(m) : Math.round(m) + "分";
-    }
-    /* 真实算出来的写「实际」，退回直线估算的写「直线」—— 不糊弄 */
-    function segText(o) {
-      if (!o || o.km == null) return "";
-      return (o.source === "amap" ? "实际 " : "直线 ") + Math.round(o.km) +
-             " km · 约 " + fmtMin(o.min);
-    }
-    function meLabel() {
-      if (!me) return "";
-      return me.src === "gps" ? "从我的位置"
-        : me.src === "cache" ? "从上次定位"
-        : "从今天第一处";
-    }
-
-    function paintMeta() {
-      if (!metaEl) return;
-      var n = route.pts.length, txt;
-      if (sel) {
-        var t = sel.village || sel.town;
-        /* 起点本身被选中时算出来是 0 km，说成「就在这」比「直线 0 km」更像人话 */
-        if (sel.seg && sel.seg.km != null && sel.seg.km < 0.5) {
-          txt = "起点 · " + t + "（就在这）";
-        } else {
-          txt = "到 " + t + " · " + meLabel() + " " +
-                (sel.seg ? segText(sel.seg) : (pending ? "计算中…" : "没算出来"));
-        }
-      } else {
-        txt = n + " 处";
-        if (route.real) txt += " · " + segText(route.real);
-        else if (route.km >= 1) {
-          txt += " · 直线 " + route.km + " km";
-          var m = w.GEO ? w.GEO.estMinutes(route.km) : null;
-          if (m) txt += " · 约 " + fmtMin(m);
-        }
-        if (pending) txt += " · 计算中…";
-        if (route.miss) txt += " · " + route.miss + " 单无坐标";
-      }
-      metaEl.textContent = txt;
-      updateNav(sel);
-      if (hintEl) {
-        hintEl.textContent = sel ? "再点一次这个点，回到整趟路线"
-          : (n > 1 ? "点地图上的点，看从我这怎么过去" : "");
+    var el = document.getElementById("dxMap"), meta = document.getElementById("dxMapMeta"), hint = document.getElementById("dxMapHint");
+    if (!el || !w.TILEMAP) return;
+    var base = w.GEO && w.GEO.baseGeo && w.GEO.baseGeo();
+    var points = route.pts.map(function (p, i) { return {lat:p.lat, lng:p.lng, name:(p.village || p.town || p.title || "施工点") + " " + (i + 1)}; });
+    if (base && isFinite(base.lat) && isFinite(base.lng)) points.unshift({lat:base.lat, lng:base.lng, name:"固定出发地"});
+    var from = null, to = null, me = null, serial = 0, map, road = null;
+    var pointList = document.getElementById("dxPointList");
+    var nav = document.getElementById("dxNavBtn"), navPick = document.getElementById("dxNavPick");
+    function refresh() {
+      map.setMarkers(points.map(function (p) { return {lat:p.lat, lng:p.lng, label:U.esc(p.name), title:p.name,
+        major:p === from || p === to, state:p === from || p === to ? "sel" : "",
+        onClick:function () { choose(p); }}; }));
+      if (pointList) pointList.innerHTML = points.map(function (p, i) {
+        return '<button type="button" class="dx-point' + (p === from ? ' start' : p === to ? ' end' : '') + '" data-point-index="' + i + '">' + U.esc(p === from ? "起点 · " : p === to ? "终点 · " : "") + U.esc(p.name) + '</button>';
+      }).join("");
+      if (nav) nav.hidden = !(from && to);
+      if (navPick) navPick.hidden = true;
+      if (hint) hint.textContent = !from ? "点选地图或地点，选择起点" : !to ? "再选择终点" : "可继续点选地点，重新规划路线";
+      if (!from || !to) { if (meta) meta.textContent = from ? "起点：" + from.name : "请选择两个地点"; map.redraw(); return; }
+      var id = ++serial;
+      if (meta) meta.textContent = from.name + " → " + to.name + " · 正在规划…";
+      map.redraw();
+      w.GEO.routeGeometry(from, to).then(function (result) {
+        if (id !== serial) return;
+        road = result.points; map.redraw();
+        if (meta) meta.textContent = from.name + " → " + to.name + " · " + result.km + " km · 约 " + w.GEO.fmtMin(result.min);
+        if (hint) hint.textContent = "蓝线为道路规划路线 · 再点地点可重新选择";
+      }).catch(function (err) { if (id === serial) { road = null; map.redraw(); if (meta) meta.textContent = err.message || "路线规划失败，请重试"; if (hint) hint.textContent = "未取得道路路线，请检查网络和高德 Key"; } });
+      if (navPick) {
+        var a = navPick.querySelector('[data-nav="amap"]'), b = navPick.querySelector('[data-nav="apple"]');
+        if (a) a.href = "https://uri.amap.com/navigation?from=" + from.lng + "," + from.lat + "," + encodeURIComponent(from.name) + "&to=" + to.lng + "," + to.lat + "," + encodeURIComponent(to.name) + "&mode=car&coordinate=gaode&callnative=1&src=dingzhu";
+        if (b) { b.hidden = !/iPad|iPhone|iPod|Macintosh/.test((w.navigator && w.navigator.userAgent) || ""); b.href = "https://maps.apple.com/?saddr=" + from.lat + "," + from.lng + "&daddr=" + to.lat + "," + to.lng + "&dirflg=d"; }
       }
     }
-
-    /* 我的位置：已有就用；没有先看 12 小时内的定位缓存；再没有就按今天第一处 */
-    function resolveMe() {
-      if (me) return me;
-      var c = null;
-      try { c = (w.GEO && w.GEO.cachedLoc) ? w.GEO.cachedLoc() : null; } catch (e) { c = null; }
-      if (c && isFinite(c.lat) && isFinite(c.lng)) {
-        me = { lat: c.lat, lng: c.lng, src: "cache" };
-      } else {
-        var p0 = route.pts[0];
-        me = { lat: p0.lat, lng: p0.lng, src: "first" };
-      }
-      if (map) map.setMe(me);
-      return me;
+    function choose(p) {
+      serial++; road = null;
+      if (!from || to) { from = p; to = null; }
+      else if (p === from) { from = null; }
+      else { to = p; }
+      refresh();
     }
-
-    function refreshMarkers() {
-      map.setMarkers(route.pts.map(function (p) {
-        return {
-          lng: p.lng, lat: p.lat,
-          label: p.idx + " " + (p.village || p.town || ""),
-          dx: p.dx, dy: p.dy,
-          title: p.town + " · " + p.title,
-          major: sel ? p === sel : p.idx === 1,
-          state: sel ? (p === sel ? "sel" : "dim") : "",
-          onClick: function () { select(p === sel ? null : p); }
-        };
-      }));
-    }
-
-    function viewAll() {
-      var lngs = route.pts.map(function (p) { return p.lng; });
-      var lats = route.pts.map(function (p) { return p.lat; });
-      var bb = [Math.min.apply(null, lngs), Math.min.apply(null, lats),
-                Math.max.apply(null, lngs), Math.max.apply(null, lats)];
-      /* 只有一处活时 bbox 会退化成一个点，撑开一点，否则会顶到最大级别 */
-      if (bb[2] - bb[0] < 0.01) { bb[0] -= 0.012; bb[2] += 0.012; }
-      if (bb[3] - bb[1] < 0.008) { bb[1] -= 0.009; bb[3] += 0.009; }
-      map.fitBounds(bb, 56);
-    }
-
-    function planTo(p) {
-      if (!w.GEO || !w.GEO.route) return;
-      var from = resolveMe();
-      p.seg = null;
-      pending++;
-      paintMeta();
-      w.GEO.route(from, p).then(function (r) {
-        pending--;
-        p.seg = r;
-        paintMeta();
-        if (map) map.redraw();
-      }, function () {
-        pending--;
-        paintMeta();
-      });
-    }
-
-    function select(p) {
-      sel = p || null;
-      refreshMarkers();
-      if (!sel) { viewAll(); paintMeta(); return; }
-      var from = resolveMe();
-      planTo(sel);
-      /* 视野框住「我 → 这一处」，让这段路能看清 */
-      var l1 = Math.min(from.lng, sel.lng), l2 = Math.max(from.lng, sel.lng);
-      var a1 = Math.min(from.lat, sel.lat), a2 = Math.max(from.lat, sel.lat);
-      if (l2 - l1 < 0.008) { var cx = (l1 + l2) / 2; l1 = cx - 0.004; l2 = cx + 0.004; }
-      if (a2 - a1 < 0.006) { var cy = (a1 + a2) / 2; a1 = cy - 0.003; a2 = cy + 0.003; }
-      map.fitBounds([l1, a1, l2, a2], 64);
-      paintMeta();
-    }
-
     function locateMe() {
-      if (!w.GEO || !w.GEO.locate) return Promise.resolve();
-      return w.GEO.locate().then(function (p) {
-        if (!p || !isFinite(p.lat)) {
-          U.toast("没拿到定位，先按" + (me && me.src === "cache" ? "上次定位" : "当天第一处") + "算");
-          return;
-        }
-        me = { lat: p.lat, lng: p.lng, src: "gps" };
-        map.setMe(me);
-        map.panTo(me.lng, me.lat, 13);
-        U.toast("已回到我的位置");
-        if (sel) planTo(sel); else paintMeta();
+      return w.GEO.locate({fresh:true}).then(function (p) {
+        if (!p) { U.toast("无法获取当前位置，请检查手机定位权限后重试"); return; }
+        return w.GEO.toMapPosition(p).then(function (point) {
+          if (!me) { me = {name:"当前位置", lat:point.lat, lng:point.lng}; points.push(me); }
+          else { me.lat = point.lat; me.lng = point.lng; }
+          serial++; road = null; map.panTo(me.lng, me.lat, 15); refresh(); U.toast("已回到我的位置");
+        }).catch(function (err) { U.toast(err.message || "定位坐标转换失败，请检查网络和高德 Key"); });
       });
     }
-
-    /* 整趟的真实车程：跨镇才值得算；只把全部段落都拿到真实值时才替换直线 */
-    function autoReal() {
-      if (!crossTown || route.pts.length < 2 || route.real) return;
-      var pairs = [];
-      for (var i = 1; i < route.pts.length; i++) pairs.push([route.pts[i - 1], route.pts[i]]);
-      pending++;
-      paintMeta();
-      Promise.all(pairs.map(function (pr) {
-        return w.GEO.route(pr[0], pr[1]).then(function (r) { return r; }, function () { return null; });
-      })).then(function (list) {
-        pending--;
-        var km = 0, min = 0, ok = true;
-        list.forEach(function (r) {
-          if (!r || r.source !== "amap" || r.km == null) { ok = false; return; }
-          km += r.km; min += r.min || 0;
-        });
-        if (ok && km > 0) route.real = { km: km, min: min, source: "amap" };
-        paintMeta();
-      });
-    }
-
-    map = w.TILEMAP.create(el, {
-      center: [route.pts[0].lng, route.pts[0].lat],
-      zoom: 11, minZoom: 8, maxZoom: 13,
-      bounds: [115.6, 34.1, 121.2, 37.5],
-      onLocate: locateMe,
-      onDraw: function (ctx, proj) {
-        var pts = route.pts;
-        /* 整趟的先后顺序：一条虚线 */
-        if (pts.length > 1) {
-          ctx.save();
-          ctx.strokeStyle = "#185FA5";
-          ctx.globalAlpha = sel ? 0.16 : 0.7;
-          ctx.lineWidth = 2.2;
-          ctx.lineJoin = "round";
-          ctx.lineCap = "round";
-          ctx.setLineDash([7, 5]);
-          ctx.beginPath();
-          pts.forEach(function (p, i) {
-            var q = proj(p.lng, p.lat);
-            if (i === 0) ctx.moveTo(q[0] + p.dx, q[1] + p.dy);
-            else ctx.lineTo(q[0] + p.dx, q[1] + p.dy);
-          });
-          ctx.stroke();
-          ctx.restore();
-        }
-        /* 「我 → 目标」那一段：实线加粗，是当前真正要看的一段 */
-        if (me) {
-          var to = sel || pts[0];
-          var same = (me.src === "first" && to === pts[0]);
-          if (to && !same) {
-            var a = proj(me.lng, me.lat), b = proj(to.lng, to.lat);
-            ctx.save();
-            ctx.strokeStyle = "#0B62D0";
-            ctx.globalAlpha = 0.92;
-            ctx.lineWidth = 3;
-            ctx.lineJoin = "round";
-            ctx.lineCap = "round";
-            ctx.beginPath();
-            ctx.moveTo(a[0], a[1]);
-            ctx.lineTo(b[0], b[1]);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(a[0], a[1], 3.6, 0, 6.2832);
-            ctx.fillStyle = "#0B62D0";
-            ctx.fill();
-            ctx.restore();
-          }
-        }
-      }
+    if (pointList) pointList.addEventListener("click", function (e) {
+      var button = e.target.closest("[data-point-index]"); if (!button) return;
+      var point = points[Number(button.getAttribute("data-point-index"))]; if (point) choose(point);
     });
-
-    refreshMarkers();
-    viewAll();
-    paintMeta();
-    autoReal();
+    if (nav) nav.addEventListener("click", function () { if (from && to && navPick) navPick.hidden = !navPick.hidden; });
+    if (navPick) navPick.addEventListener("click", function (e) { if (e.target.closest('[data-nav="off"]')) navPick.hidden = true; });
+    map = w.TILEMAP.create(el, {center:points.length ? [points[0].lng, points[0].lat] : [119.0,35.75], zoom:11, minZoom:6, maxZoom:16, onLocate:locateMe,
+      onDraw:function (ctx, proj) {
+        if (!road || road.length < 2) return;
+        ctx.save(); ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
+        road.forEach(function (point, i) { var p = proj(point.lng, point.lat); if (i) ctx.lineTo(p[0],p[1]); else ctx.moveTo(p[0],p[1]); });
+        ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 8; ctx.stroke();
+        ctx.strokeStyle = "#1672e8"; ctx.lineWidth = 5; ctx.stroke(); ctx.restore();
+      }});
+    if (points.length) map.fitBounds([Math.min.apply(null,points.map(function(p){return p.lng;})) - 0.005, Math.min.apply(null,points.map(function(p){return p.lat;})) - 0.005, Math.max.apply(null,points.map(function(p){return p.lng;})) + 0.005, Math.max.apply(null,points.map(function(p){return p.lat;})) + 0.005], 48);
+    refresh();
   }
 
-  function openDay(date) {
+  function openDay(date, refreshSchedule) {
     var d = dayByDate(date);
     if (!d) return;
     var iso = d.y + "-" + date.replace(".", "-");
@@ -815,18 +603,16 @@
               (o && D.state(o) === "done" && D.due(o) > 0 ? " · 待收 ¥" + U.n(D.due(o)) : "") +
             "</div></a>";
         }).join("");
-      } else {
-        body = '<button type="button" class="dx-free" data-day="' + d.date + '" data-ampm="' + sl.ampm + '">' +
-          U.icon("plus", 12) + " 点此排单</button>";
-      }
+      } else { body = ""; }
       return '<div class="dx-sec"><div class="dx-lb">' + sl.ampm + " · " +
-        (items.length ? items.length + " 单" : "空档") + "</div>" + body + "</div>";
+        (items.length ? items.length + " 单" : "空档") + "</div>" + body +
+        '<button type="button" class="dx-free" data-day="' + d.date + '" data-ampm="' + sl.ampm + '">添加' + sl.ampm + "订单</button></div>";
     }).join("");
 
     var route = dayRoute(d);
     var mapBlock = "";
-    if (route.pts.length) {
-      /* 首屏先给直线估算，地图起来后 initDayMap 会换成实际车程 */
+    {
+      /* 地图可用于定位，即使当天没有施工点。 */
       var meta = route.pts.length + " 处";
       if (route.km >= 1) {
         meta += " · 直线 " + route.km + " km";
@@ -835,6 +621,8 @@
       }
       if (route.miss) meta += " · " + route.miss + " 单无坐标";
       mapBlock =
+        '<div class="dx-map-title"><div><b>当天路线</b><span>选择两个地点规划驾车路线</span></div></div>' +
+        '<div class="dx-point-list" id="dxPointList" aria-label="选择路线地点"></div>' +
         '<div class="dx-map" id="dxMap"></div>' +
         '<div class="dx-maprow">' +
           '<div class="dx-mapmeta" id="dxMapMeta">' + meta + "</div>" +
@@ -853,13 +641,14 @@
     var mask = U.sheet(
       "<h3>" + d.date + " " + d.week + (d.lunar ? " · " + U.esc(d.lunar) : "") + "</h3>" +
       '<div class="sub">' + (count ? count + " 单" : "当天还没有活") + "</div>" +
-      wxRow() + mapBlock + secs +
+      '<div class="day-status-row"><button type="button" class="day-status' + (d.full ? " is-full" : "") + '" id="dxFull" aria-label="' + (d.full ? "已排满，点击取消" : "未排满，点击标记排满") + '" aria-pressed="' + !!d.full + '">' + (d.full ? "满" : "") + '</button><span id="dxFullText">' + (d.full ? "已排满 · 点击取消" : "未排满 · 点击标记") + "</span></div>" +
+      wxRow() + secs + mapBlock +
       '<button class="btn ghost mt14" id="dxClose">关闭</button>'
     );
 
     /* 地图要等抽屉落位才有宽高。rAF 在被遮挡的 iframe / 后台标签页里会停摆，
        所以再挂一个定时兜底，谁先到算谁 */
-    if (route.pts.length) {
+    {
       var inited = false;
       var once = function () { if (inited) return; inited = true; initDayMap(route); };
       if (w.requestAnimationFrame) {
@@ -870,6 +659,16 @@
 
     mask.addEventListener("click", function (e) {
       if (e.target.closest("#dxClose")) { U.closeSheet(); return; }
+      if (e.target.closest("#dxFull")) {
+        var statusButton = e.target.closest("#dxFull"); if (statusButton.disabled) return; statusButton.disabled = true;
+        D.setDayFull(iso, !d.full).then(function () {
+          statusButton.disabled = false; statusButton.classList.toggle("is-full", d.full);
+          statusButton.textContent = d.full ? "满" : ""; statusButton.setAttribute("aria-pressed", String(!!d.full));
+          statusButton.setAttribute("aria-label", d.full ? "已排满，点击取消" : "未排满，点击标记排满");
+          var label = document.getElementById("dxFullText"); if (label) label.textContent = d.full ? "已排满 · 点击取消" : "未排满 · 点击标记";
+          if (refreshSchedule) refreshSchedule();
+        }).catch(function (err) { statusButton.disabled = false; U.toast(err.message); }); return;
+      }
       var job = e.target.closest(".dx-job"), href = job && job.getAttribute("href");
       if (href && href.indexOf("#/order/") === 0) {
         e.preventDefault(); w.APP.openOrder(href.slice(8)); return;
@@ -890,7 +689,7 @@
     if (p) { scheduleFor(p, date, ampm, nearOf(dayByDate(date))); return; }
     var o = forOrder();
     if (o) { scheduleExisting(o, date, ampm); return; }
-    w.APP.createSlot = { day: date, ampm: ampm };
+    w.APP.createSlot = { day: state.month + "-" + date.slice(3), ampm: ampm };
     U.toast("已选择 " + date + " " + ampm + " · 去记一单");
     w.location.hash = "#/create";
   }
@@ -1242,9 +1041,12 @@
       var listWrap = document.getElementById("listWrap");
       if (listWrap) listWrap.addEventListener("click", function (e) {
         if (Date.now() < suppressClickUntil) { e.preventDefault(); return; }   /* 刚拖拽落位，别把这个 click 当点击空档 */
+        var full = e.target.closest("[data-full-day]");
+        if (full) { var fd = dayByDate(full.getAttribute("data-full-day")); if (fd) D.setDayFull(state.month + "-" + fd.date.slice(3), !fd.full).then(refresh).catch(function (err) { U.toast(err.message); }); return; }
+        var header = e.target.closest("[data-open-day]"); if (header) { openDay(header.getAttribute("data-open-day"), refresh); return; }
         var s = e.target.closest(".ag-free");
         if (!s) return;
-        handleFree(s.getAttribute("data-day"), s.getAttribute("data-ampm"));
+        openDay(s.getAttribute("data-day"), refresh);
       });
 
       /* 月历：点格子开当天详情（格子本身不接拖拽，改期仍在列表里做） */
@@ -1255,7 +1057,7 @@
         if (!day) return;
         var page = c.closest(".cal-month-page"), key = page && page.getAttribute("data-month");
         if (key && key !== state.month) switchMonth(key);
-        openDay(day);
+        openDay(day, refresh);
       });
 
       document.getElementById("btnView").addEventListener("click", function () {

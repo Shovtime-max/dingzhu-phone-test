@@ -350,8 +350,26 @@
     });
   }
 
+  function teamInfo(ids) {
+    var teams = String(ids || "").split(",").map(function (id) { return w.DATA.teamById(id); }).filter(Boolean);
+    if (!teams.length) return;
+    var html = teams.map(function (team) {
+      var members = team.members || [];
+      return '<h3>' + esc(team.name) + '</h3>' + (members.length ? members.map(function (m) {
+        var phone = String(m.phone || "").trim();
+        var safePhone = phone.replace(/[^+0-9]/g, "");
+        return '<div class="rowline"><span class="k">' + esc(m.name) + (m.role ? ' · ' + esc(m.role) : '') + '</span><span class="v">' + (safePhone ? '<a href="tel:' + esc(safePhone) + '">☎ ' + esc(phone) + '</a>' : '未填写电话') + '</span></div>';
+      }).join("") : '<div class="sub">暂无队伍成员</div>');
+    }).join("");
+    sheet(html + '<button type="button" class="btn ghost mt14" onclick="UI.closeSheet()">关闭</button>');
+  }
+  document.addEventListener("click", function (e) {
+    var target = e.target.closest && e.target.closest("[data-team-info]"); if (!target) return;
+    e.preventDefault(); e.stopPropagation(); teamInfo(target.getAttribute("data-team-info"));
+  }, true);
+
   w.UI = {
-    teamPicker: teamPicker, bindTeamPicker: bindTeamPicker, teamSheet: teamSheet, processPresetSheet: processPresetSheet, bindProcessDelete: bindProcessDelete,
+    teamInfo: teamInfo, teamPicker: teamPicker, bindTeamPicker: bindTeamPicker, teamSheet: teamSheet, processPresetSheet: processPresetSheet, bindProcessDelete: bindProcessDelete,
     icon: icon, SB: SB, n: n, yuan: yuan, pct: pct, esc: esc,
     statusPill: statusPill, toast: toast, sheet: sheet, closeSheet: closeSheet, STATUS: STATUS,
     bindSwipe: bindSwipe

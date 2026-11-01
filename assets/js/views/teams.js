@@ -26,7 +26,7 @@
     return (
       '<section class="card team-card mt12">' +
         '<div class="tc-head">' +
-          '<div class="tc-badge" style="background:' + U.esc(t.color) + '">' + U.esc(t.name) + "</div>" +
+          '<div class="tc-badge" role="button" tabindex="0" data-team-info="' + U.esc(t.id) + '" style="background:' + U.esc(t.color) + '">' + U.esc(t.name) + "</div>" +
           '<div class="col">' +
             '<div class="tc-name">' + U.esc(t.alias) + "</div>" +
             '<div class="tc-sub">' + (lead ? "队长 " + U.esc(lead.name) : "未指定队长") +

@@ -179,7 +179,7 @@
             (o.mode === "大包" ? "（包工包料）"
               : o.mode === "人工" ? "（纯人工）"
               : "（待现场量尺确认）") + "</span></div>" +
-        '<div class="rowline"><span class="k">施工班组</span><span class="v">' + U.esc(D.teamNames(o.teams)) + ' <button type="button" class="pill xs line" id="btnEditTeams">选择队伍</button></span></div>' +
+        '<div class="rowline"><span class="k">施工班组</span><span class="v"><span role="button" tabindex="0" data-team-info="' + U.esc((o.teams || []).join(',')) + '">' + U.esc(D.teamNames(o.teams)) + '</span>' + ' <button type="button" class="pill xs line" id="btnEditTeams">选择队伍</button></span></div>' +
         '<div class="rowline"><span class="k">档期</span><span class="v">' +
           (o.doneAt ? "完工 " + (o.done || String(o.doneAt).split(" ")[0])
             : o.startedAt ? "开工 " + (o.start || String(o.startedAt).split(" ")[0])

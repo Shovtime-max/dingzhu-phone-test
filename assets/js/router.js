@@ -49,6 +49,7 @@
   function render() {
     w.DATA.refreshToday();
     var hash = w.location.hash || "#/schedule", currentScreen = document.getElementById("screen");
+    if (/^#\/create(?:\?|$)/.test(activeHash) && !/^#\/create(?:\?|$)/.test(hash)) w.APP.createSlot = null;
     var leavingOrder = /^#\/order\//.test(activeHash), enteringOrder = /^#\/order\//.test(hash);
     if (activeHash && currentScreen) positions[activeHash] = departure && departure.hash === activeHash ? departure.top : currentScreen.scrollTop;
     departure = null;

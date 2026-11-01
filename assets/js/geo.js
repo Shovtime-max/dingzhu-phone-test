@@ -439,6 +439,37 @@
     });
   }
 
+  /* 路径的道路坐标按需请求，不改变其他场景的轻量车程查询。 */
+  function routeGeometry(a, b) {
+    if (!directKey()) return Promise.reject(new Error("请先配置高德地图 Key"));
+    return amapDirect("/direction/driving", {
+      origin:Number(a.lng).toFixed(6) + "," + Number(a.lat).toFixed(6),
+      destination:Number(b.lng).toFixed(6) + "," + Number(b.lat).toFixed(6),
+      extensions:"all", strategy:"0"
+    }, 10000).then(function (j) {
+      var path = j.route && j.route.paths && j.route.paths[0];
+      if (!path || !Array.isArray(path.steps)) throw new Error("未取得道路路线");
+      var points = [];
+      path.steps.forEach(function (step) {
+        String(step.polyline || "").split(";").forEach(function (part) {
+          var p = dSplit(part); if (p) points.push(p);
+        });
+      });
+      var distance = Number(path.distance), seconds = Number(path.duration);
+      if (points.length < 2 || !Number.isFinite(distance) || distance < 0 || !Number.isFinite(seconds) || seconds < 0) throw new Error("道路路线数据不完整");
+      return {points:points, km:Math.round(distance / 100) / 10, min:Math.max(1, Math.round(seconds / 60))};
+    });
+  }
+  /* 浏览器 GPS 为 WGS-84，需转为高德地图使用的 GCJ-02。 */
+  function toMapPosition(position) {
+    if (!directKey()) return Promise.reject(new Error("请先配置高德地图 Key，再使用地图定位"));
+    return amapDirect("/assistant/coordinate/convert", {
+      locations:Number(position.lng).toFixed(6) + "," + Number(position.lat).toFixed(6), coordsys:"gps"
+    }, 8000).then(function (j) {
+      var point = dSplit(j.locations); if (!point) throw new Error("定位坐标转换失败"); return point;
+    });
+  }
+
   /* ---------- 缓存（内存 + localStorage） ---------- */
   /* 用户自己录过的村镇：录一次就记住，下次直接能联想（存在 localStorage） */
   var LS_VILLAGE = "roofgeo.villages.v1";
@@ -472,7 +503,7 @@
     return null;
   }
 
-  function locate() {
+  function locate(options) {
     var geo = w.navigator && w.navigator.geolocation;
     if (!geo || !geo.getCurrentPosition) return Promise.resolve(null);
     return new Promise(function (resolve) {
@@ -484,7 +515,7 @@
       }, function () {
         /* 用户拒绝或超时：不拦搜索，按上次位置继续 */
         resolve(null);
-      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 300000 });
+      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: options && options.fresh ? 0 : 300000 });
     });
   }
 
@@ -1022,6 +1053,15 @@
     };
   }
 
+  function addressForPoint(lat, lng) {
+    if (!directKey()) return Promise.resolve(null);
+    return amapDirect("/geocode/regeo", { location: Number(lng).toFixed(6) + "," + Number(lat).toFixed(6), extensions: "base" }, 6000).then(function (r) {
+      var c = r.regeocode && r.regeocode.addressComponent || {};
+      function str(x) { return typeof x === "string" ? x : ""; }
+      return {province:str(c.province), city:str(c.city) || str(c.province), county:str(c.district), town:str(c.township)};
+    }).catch(function () { return null; });
+  }
+
   w.GEO = {
     EP: EP,
     SEED: SEED,
@@ -1035,6 +1075,8 @@
     status: function () { return status; },
     suggest: suggest,
     route: route,
+    routeGeometry: routeGeometry,
+    toMapPosition: toMapPosition,
     routeSync: routeSync,
     estMinutes: estMinutes,
     fmtMin: fmtMin,
@@ -1042,6 +1084,7 @@
     seedMatch: seedMatch,
     seedByVillage: seedByVillage,
     searchPoi: searchPoi,
+    addressForPoint: addressForPoint,
     locate: locate,
     cachedLoc: cachedLoc,
     nearby: nearby,

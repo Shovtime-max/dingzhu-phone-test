@@ -33,7 +33,8 @@
     var g = st.geo || {};
     var seed = null;
     try { seed = GEO.seedMatch(addrText); } catch (e) {}
-    var town = g.town || (seed && seed.town) || "";
+    var townInput = document.getElementById("inTown");
+    var town = (townInput && townInput.value.trim()) || g.town || (seed && seed.town) || "";
     var village = g.village || (seed && seed.village) || g.name ||
       String(addrText).split(/[\s,，]+/)[0] || addrText;
     return {
@@ -86,7 +87,7 @@
         "</div>"
       : "";
 
-    var body = resume +
+    var body = (w.APP.createSlot ? '<div class="for-bar"><div class="col"><b>已选档期：' + U.esc(w.APP.createSlot.day + " " + w.APP.createSlot.ampm) + '</b><span>保存后直接排入该时段</span></div></div>' : "") + resume +
       /* 地址与业主：整张卡要抬到兄弟卡片之上，否则下拉会被下一张卡盖住 */
       '<section class="card addr-card mt12">' +
         '<div class="card-head" style="margin-bottom:12px">' +
@@ -103,6 +104,7 @@
             '<div class="geosug" id="geoSug" hidden></div>' +
           "</div>" +
           '<div class="geo-line" id="geoLine"></div>' +
+          '<input class="inline-input mt10" id="inTown" type="text" maxlength="50" placeholder="所属乡镇（自动识别，也可填写）">' +
         "</div>" +
         '<div class="fx g8 mt10">' +
           '<input class="inline-input" id="inOwner" type="text" placeholder="业主姓名" style="flex:1.1" value="' +
@@ -238,7 +240,7 @@
       }
 
       function renderSug(res) {
-        sugItems = res.items || [];
+        sugItems = (res.items || []).map(function (item) { return Object.assign({}, item, { source: item.source || res.source }); });
         active = -1;
 
         if (!sugItems.length) {
@@ -356,8 +358,16 @@
           name: it.name,
           addr: it.addr || "",
           lat: it.lat, lng: it.lng,
-          source: src
+          source: src, town: it.town || "", village: it.village || ""
         };
+        var selectedGeo = st.geo;
+        if (GEO.addressForPoint && src === "amap") { selectedGeo.lookingUp = true; GEO.addressForPoint(it.lat, it.lng).then(function (address) {
+          selectedGeo.lookingUp = false;
+          if (st.geo !== selectedGeo || !address) return;
+          Object.assign(selectedGeo, address);
+          if (address.town) { var townInput = document.getElementById("inTown"); if (townInput && !townInput.value.trim()) townInput.value = address.town; U.toast("已识别所属乡镇：" + address.town); }
+          else U.toast("未识别乡镇，可手动填写");
+        }); }
         GEO.setNear(it.lat, it.lng);          /* 下次搜索优先附近，减少同名村误选 */
         addrEl.value = it.name;
 
@@ -465,6 +475,7 @@
          去向一旦确定就不再切换；新增只叠加、不动演示基线，存 localStorage，刷新还在
       */
       function readForm() {
+        if (st.geo && st.geo.lookingUp) { U.toast("正在识别所属乡镇，请稍候"); return null; }
         var owner = document.getElementById("inOwner").value.trim();
         var addr = document.getElementById("inAddr").value.trim();
         var phone = document.getElementById("inPhone").value.trim();
@@ -571,7 +582,7 @@
 
         if (kind === "pending") {
           return saveToPending(f).then(function (p) {
-            U.toast("已存入待定池 · " + p.id); resetForm();
+            U.toast("已存入待定池 · " + p.id); w.APP.createSlot = null; resetForm();
             setTimeout(function () { w.location.hash = "#/pending"; }, 620);
           }).catch(function (e) { unlockDecision(kind, e); });
         }
@@ -584,10 +595,12 @@
           tags:f.scope, note:f.note || "录单生成", flows:[]
         };
         /* 从待定池补信息：带上线索号，建单后线索自动关联，不会重复成单 */
-        return D.createOrder(o, null, null, src ? src.id : null, f.customScope).then(function (saved) {
+        var selectedSlot = w.APP.createSlot;
+        return D.createOrder(o, selectedSlot && selectedSlot.day, selectedSlot && selectedSlot.ampm, src ? src.id : null, f.customScope, !!selectedSlot).then(function (saved) {
+          w.APP.createSlot = null;
           resetForm();
-          U.toast(src ? "信息已补全 " + saved.id + " · 去排期落位" : "已建档 " + saved.id + " · 去排期选档期");
-          setTimeout(function () { w.location.hash = "#/schedule?order=" + saved.id; }, 620);
+          U.toast(selectedSlot ? "已排入 " + selectedSlot.day + " " + selectedSlot.ampm : (src ? "信息已补全 " + saved.id + " · 去排期落位" : "已建档 " + saved.id + " · 去排期选档期"));
+          setTimeout(function () { w.location.hash = selectedSlot ? "#/schedule" : "#/schedule?order=" + saved.id; }, 620);
         }).catch(function (e) { unlockDecision(kind, e); });
       }
 
