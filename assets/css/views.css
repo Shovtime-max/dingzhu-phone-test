@@ -2610,3 +2610,5 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .sheet-mask.sheet-under {
   display: none !important;
 }
+
+.delete-warning{margin:14px 0;padding:14px;border-radius:12px;background:#fff0ed;color:#942c23;font-size:13px;line-height:1.65}.delete-warning b{display:block;font-size:15px}.delete-warning p{margin:8px 0 0}.delete-ack-label{display:block;margin:14px 0 8px;font-size:13px;font-weight:700}#delYes:disabled{opacity:.45;cursor:not-allowed}

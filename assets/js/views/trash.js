@@ -130,8 +130,8 @@
         U.sheet("<h3>回收站怎么用</h3>" +
           '<div class="sub">删掉的东西都在这儿，不会立刻消失</div>' +
           '<div class="rowline"><span class="k">怎么删</span><span class="v">待定池 / 订单里往左滑卡片</span></div>' +
-          '<div class="rowline"><span class="k">已收款</span><span class="v">有收款记录的单不允许删除</span></div>' +
-          '<div class="rowline"><span class="k">还原</span><span class="v">回到列表，原档期一并恢复</span></div>' +
+          '<div class="rowline"><span class="k">已收款</span><span class="v">已完成订单可删除；收款移出统计，随订单保存在回收站</span></div>' +
+          '<div class="rowline"><span class="k">还原</span><span class="v">订单、原档期和收款一并恢复，重新计入统计</span></div>' +
           '<button class="btn primary mt14" onclick="UI.closeSheet()">知道了</button>');
       });
     }

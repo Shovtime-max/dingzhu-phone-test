@@ -580,7 +580,13 @@
       }))) throw new Error("本地流水异常，已停止写入；请保留原始记录以便核对");
     }
     a.orders.concat(a.pending).forEach(checkFields);
-    a.trash.forEach(function (t) { checkFields(t.payload); });
+    a.trash.forEach(function (t) {
+      checkFields(t.payload);
+      if (t.linkedReceipts != null) {
+        if (!object(t.linkedReceipts) || !Number.isSafeInteger(t.linkedReceipts.paid) || t.linkedReceipts.paid < 0 || !Array.isArray(t.linkedReceipts.flows)) throw new Error("关联收款快照格式异常");
+        checkFields(t.linkedReceipts);
+      }
+    });
     a.orders.forEach(function (o) {
       if (!Array.isArray(o.tags) || !Array.isArray(o.teams) || typeof o.note !== "string" ||
           typeof o.owner !== "string" || typeof o.addr !== "string" || typeof o.town !== "string" ||
@@ -823,7 +829,7 @@
     });
     Object.keys(a.patches).forEach(function (id) {
       var p = pendingById(id); if (!p) return;
-      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams", "town"].forEach(function (k) {
+      ["stage", "days", "blocker", "orderId", "mode", "starred", "teams", "town", "paid", "flows"].forEach(function (k) {
         if (a.patches[id][k] !== undefined) p[k] = copy(a.patches[id][k]);
       });
     });
@@ -933,6 +939,7 @@
       if (o.quote !== undefined && o.paid !== undefined) validateMoney(o);
     }
     a.orders.concat(a.pending, a.trash.map(function (t) { return t.payload; }), Object.keys(a.orderPatches).map(function (id) { return a.orderPatches[id]; }), Object.keys(a.patches).map(function (id) { return a.patches[id]; })).forEach(fields);
+    a.trash.forEach(function (t) { if (t.linkedReceipts) fields(t.linkedReceipts); });
     a.teams.concat(Object.keys(a.teamPatches).map(function (id) { return a.teamPatches[id]; })).forEach(function (t) {
       if (t.color !== undefined && !/^#[0-9a-f]{6}$/i.test(t.color)) throw new Error("备份中的队伍颜色不正确");
       if (t.members !== undefined && (!Array.isArray(t.members) || t.members.some(function (m) { return !object(m) || typeof m.name !== "string"; }))) throw new Error("备份中的队员格式不正确");
@@ -1159,7 +1166,7 @@
   /* ==========================================================================
      删除 / 回收站 / 重点标记
      · 删除是软删除：整条记录连它占的档位一起进 ADDED.trash，列表里立即消失
-     · 已收款或已结清的单不让删 —— 账目对不上，回收站也补不回已经发生的钱
+     · 已完工 / 已结清订单可删除，收款随快照进入回收站，不再计入业务统计
      · 还原：payload 原样写回；原档位也一并挂回去（已被别的单占了就同档并存）
      · 彻底删除：只把 purged 置真，墓碑留着防复活，回收站里不再显示
      ========================================================================== */
@@ -1180,12 +1187,12 @@
     return commit(function (next) {
       if (kind === "order") {
         var o = byId(id); if (!o) throw new Error("订单不存在");
-        if (Number(o.paid) > 0) throw new Error("这单已收 ¥" + o.paid + "，有收款记录，不能删除；请先核对账目");
-        if (state(o) === "settled") throw new Error("已结清的单不能删除，账目要留档");
+        if (Number(o.paid) > 0 && !finished(o)) throw new Error("未完工订单已有收款，请先核对账目；已完成订单可确认删除");
         var link = findPendingByOrder(id);
         next.trash.push({
           kind: "order", id: id, at: nowStamp(), on: TODAY.iso,
-          payload: Object.assign({id:id}, orderSnapshot(o)), slots: slotKeysOf(id), link: link ? link.id : null
+          payload: Object.assign({id:id}, orderSnapshot(o)), slots: slotKeysOf(id), link: link ? link.id : null,
+          linkedReceipts: link ? {paid:link.paid || 0, flows:copy(link.flows || [])} : null
         });
         next.orders = next.orders.filter(function (x) { return x.id !== id; });
         Object.keys(next.slots).forEach(function (k) {
@@ -1195,7 +1202,7 @@
         });
         /* 订单删了，线索要断开关联，回到「可补充信息」的状态，不能留个死指针 */
         if (link) next.patches[link.id] = Object.assign({}, next.patches[link.id], {
-          orderId: null, stage: "待量尺", blocker: "原订单已删除，待重新补齐信息"
+          orderId: null, stage: "待量尺", blocker: "原订单已删除，收款已从业务记录中移除", paid:0, flows:[]
         });
         return id;
       }
@@ -1231,10 +1238,13 @@
         });
         if (t.link) {
           var p0 = pendingById(t.link);
-          if (p0) next.patches[p0.id] = Object.assign({}, next.patches[p0.id], {
-            orderId: id, stage: "待排期",
-            blocker: back ? "已还原，原档期一并恢复" : "已还原，等排档期落位"
-          });
+          if (p0) {
+            if (p0.orderId && p0.orderId !== id) throw new Error("原线索已关联新订单，请先核对关联后再还原");
+            if (t.linkedReceipts && (Number(p0.paid) > 0 || (p0.flows || []).length)) throw new Error("原线索已有新的收款，请先核对后再还原");
+            next.patches[p0.id] = Object.assign({}, next.patches[p0.id], t.linkedReceipts ? {paid:t.linkedReceipts.paid, flows:copy(t.linkedReceipts.flows)} : {}, {
+              orderId:id, stage:"待排期", blocker:back ? "已还原，原档期一并恢复" : "已还原，等排档期落位"
+            });
+          }
         }
       } else {
         if (pendingById(id)) throw new Error("这条线索已经在待定池里了，无需还原");

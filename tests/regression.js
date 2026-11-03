@@ -282,15 +282,14 @@ async function create(x,price='3000'){x.mount('create');x.fill();x.el.inPrice.va
    assert(slotHas(y,id));
  });
 
- await test('已收款或已结清的单不允许删除',async()=>{
-   let x=env();
-   let paid=x.ctx.DATA.ORDERS.find(z=>Number(z.paid)>0);
-   assert(paid,'演示数据里有已收款单');
-   await assert.rejects(x.ctx.DATA.removeItem('order',paid.id),/收款/);
-   assert(x.ctx.DATA.byId(paid.id),'不能删掉');
-   let settled=x.ctx.DATA.ORDERS.find(z=>x.ctx.DATA.state(z)==='settled');
-   if(settled&&Number(settled.paid)===0) await assert.rejects(x.ctx.DATA.removeItem('order',settled.id),/结清/);
-   assert.equal(x.ctx.DATA.trashList().length,0);
+ await test('已完工收款订单可删除，未完工收款订单仍受保护',async()=>{
+   let x=env(),o=await create(x),D=x.ctx.DATA;
+   await D.recordPayment(o.id,100,'现金');
+   await assert.rejects(D.removeItem('order',o.id),/未完工/);
+   await D.scheduleOrder(o.id,'2026-10-30','上午');
+   await D.transitionOrder(o.id,'start');await D.transitionOrder(o.id,'finish');
+   await D.removeItem('order',o.id);assert.equal(D.byId(o.id),null);assert.equal(D.stats().paid,0);
+   assert.equal(D.trashList()[0].payload.paid,100);
  });
 
  await test('彻底删除后回收站清空且不再复活',async()=>{

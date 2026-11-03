@@ -253,12 +253,11 @@
 
     function askDelete(o) {
       var paid = Number(o.paid) || 0;
-      /* 有收款记录的单不给删：账目对不上，回收站也补不回已经发生的钱 */
-      if (paid > 0) { U.toast("这单已收 ¥" + U.n(paid) + "，有收款记录，不能删除"); return; }
-      if (D.state(o) === "settled") { U.toast("已结清的单不能删除，账目要留档"); return; }
+      if (paid > 0 && !D.finished(o)) { U.toast("未完工订单已有收款，请先核对账目"); return; }
+      var strong = D.finished(o) || paid > 0 || (o.flows || []).length > 0;
       var link = D.findPendingByOrder(o.id);
       var mask = U.sheet(
-        "<h3>删除这张单？</h3>" +
+        "<h3>" + (strong ? "删除已完成订单及收款记录？" : "删除这张单？") + "</h3>" +
         '<div class="sub">' + U.esc(o.id) + " · " + U.esc(o.owner) + " · ¥" + U.n(o.quote) + "</div>" +
         '<div class="rowline"><span class="k">施工位置</span><span class="v">' + U.esc(o.addr) + "</span></div>" +
         (o.scheduledAt
@@ -267,19 +266,25 @@
         (link
           ? '<div class="rowline"><span class="k">待定线索</span><span class="v">' + U.esc(link.id) + "（保留，回到待补信息）</span></div>"
           : "") +
-        '<div class="rowline"><span class="k">去向</span><span class="v">进回收站，随时可还原</span></div>' +
+        (strong ? '<div class="delete-warning" role="alert"><b>删除将同步移除这张订单的账目</b><p>报价 ¥' + U.n(o.quote) + '、已收 ¥' + U.n(paid) + '、剩余待收 ¥' + U.n(D.due(o)) + ' 及 ' + (o.flows || []).length + ' 笔收款流水，将不再计入订单、收款汇总、催款名单和统计。原档期也会移除。</p><p>这不会实际退款。订单和流水保留在回收站；还原后会重新计入统计。</p></div>' +
+          '<label class="delete-ack-label" for="deleteAck">请手动输入“删除”以确认</label><input id="deleteAck" class="inline-input" type="text" autocomplete="off" placeholder="输入：删除">' : '') +
+        '<div class="rowline"><span class="k">去向</span><span class="v">进入回收站，可还原订单和收款记录</span></div>' +
         '<div class="btn-row mt14"><button class="btn ghost" id="delNo">取消</button>' +
-        '<button class="btn danger" id="delYes">确认删除</button></div>'
+        '<button class="btn danger" id="delYes"' + (strong ? ' disabled' : '') + '>确认删除' + (strong ? '并移除账目' : '') + '</button></div>'
       );
+      var ack = document.getElementById("deleteAck");
+      var confirm = document.getElementById("delYes");
+      if (strong && ack) ack.addEventListener("input", function () { confirm.disabled = ack.value.trim() !== "删除"; });
       mask.addEventListener("click", function (e) {
         if (e.target.closest("#delNo")) { U.closeSheet(); return; }
         var yes = e.target.closest("#delYes");
         if (!yes || yes.disabled) return;
+        if (strong && (!ack || ack.value.trim() !== "删除")) { U.toast("请先输入“删除”确认账目影响"); return; }
         yes.disabled = true;
         return D.removeItem("order", o.id).then(function () {
           U.closeSheet();
           refresh();
-          U.toast("已删除 · 回收站里可还原");
+          U.toast("已删除，相关收款和统计已移除 · 回收站可还原");
         }).catch(function (err) {
           yes.disabled = false;
           U.toast(err.message);
