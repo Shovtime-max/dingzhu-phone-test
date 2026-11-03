@@ -26,7 +26,7 @@ function env(store = {}, date = '2026-10-26T10:00:00+08:00', failWrite = false) 
     location:{hostname:'127.0.0.1',hash:'#/schedule'}, setTimeout:fn=>{timers.push(fn);return timers.length;},clearTimeout(){},
     addEventListener(){},removeEventListener(){},requestAnimationFrame(){},
     fetch:async url=>{fetches.push(url); return {json:async()=>url.includes('/health')?{ok:true,key:true}:{source:'amap',ok:true,minutes:60,km:35,items:[{name:'外地真实村',addr:'外市',lat:31.23,lng:121.47,source:'amap'}]}};},
-    APP:{render(){}}};
+    APP:{render(){},backHref:fallback=>fallback || "#/schedule"}};
   ctx.window=ctx; vm.createContext(ctx);
   for(const f of ['ui.js','profile.js','data.js','geo.js',...['schedule','create','orders','pending','analytics','orderDetail','teams','trash'].map(x=>'views/'+x+'.js')])vm.runInContext(fs.readFileSync(root+'assets/js/'+f,'utf8'),ctx,{filename:f});
   ctx.UI.toast=s=>logs.push(s); ctx.UI.closeSheet=()=>{};

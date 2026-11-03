@@ -769,7 +769,7 @@
       if (free) {
         var day = free.getAttribute("data-day");
         var ampm = free.getAttribute("data-ampm");
-        U.closeSheet();
+        U.closeSheet({keepHistory:true});
         handleFree(day, ampm);
       }
     });
@@ -783,7 +783,8 @@
     if (o) { scheduleExisting(o, date, ampm); return; }
     w.APP.createSlot = { day: state.month + "-" + date.slice(3), ampm: ampm };
     U.toast("已选择 " + date + " " + ampm + " · 去记一单");
-    w.location.hash = "#/create";
+    if (U.navigateFromSheet) { U.navigateFromSheet("#/create"); w.APP.render(); }
+    else w.location.hash = "#/create";
   }
 
   /* ---------- 月份选择抽屉 ---------- */
@@ -902,8 +903,9 @@
       var month = D.MONTHS[state.month];
       var fullDate = month.y + "-" + day.replace(/\./g, "-");
       return D.createOrder(o, fullDate, ampm, p.id).then(function (saved) {
-        U.closeSheet(); U.toast("已排入 " + day + " " + ampm + " · " + D.teamNames(saved.teams));
-        w.location.hash = "#/pending";
+        U.toast("已排入 " + day + " " + ampm + " · " + D.teamNames(saved.teams));
+        if (U.navigateFromSheet) { U.navigateFromSheet("#/pending"); w.APP.render(); }
+        else { U.closeSheet(); w.location.hash = "#/pending"; }
       }).catch(function (err) { saving = false; U.toast(err.message); });
     });
   }
@@ -923,8 +925,9 @@
       if (saving) return;
       saving = true;
       return D.scheduleOrder(o.id, fullDate, ampm).then(function (saved) {
-        U.closeSheet(); U.toast("已排入 " + day + " " + ampm);
-        w.location.hash = "#/order/" + saved.id;
+        U.toast("已排入 " + day + " " + ampm);
+        if (U.navigateFromSheet) { U.navigateFromSheet("#/order/" + saved.id); w.APP.render(); }
+        else { U.closeSheet(); w.location.hash = "#/order/" + saved.id; }
       }).catch(function (err) { saving = false; U.toast(err.message); });
     });
   }

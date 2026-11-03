@@ -222,6 +222,7 @@
      而不是一步退到设置之前的上上页。 */
   var lastSheetKeys = null;
   function navigateFromSheet(href) {
+    if (!sheetDepth) { clearSheets(); w.location.hash = href; return false; }
     var keys = sheetKeys.slice();
     lastSheetKeys = keys.length && keys.every(function (k) { return !!k; }) ? keys : null;
     clearSheets();
@@ -256,7 +257,7 @@
       top.classList.remove("sheet-under");
       top.id = "sheetMask";
       /* 补回刚被系统返回吃掉的那一条，保证再按返回还能继续退 */
-      try { w.history.pushState({ dzSheet: 1 }, ""); } catch (e) {}
+      try { var restored = Object.assign({}, w.history.state || {}); restored.dzSheet = 1; restored.dzSeq = (restored.dzSeq || 0) + 1; w.history.pushState(restored, ""); } catch (e) {}
       return;
     }
     clearSheets();

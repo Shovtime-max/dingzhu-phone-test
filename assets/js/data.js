@@ -975,12 +975,20 @@
     next.idSeq = Math.max(idSeq(), Number(next.idSeq) || 0);
     /* 地图 Key 属于设备配置，不塞进业务快照里（否则它会跟着 commit 到处漂，
        也会和 dingzhu.amapkey.v1 那份打架）；先单独写回本机，再从存储副本里摘掉。 */
-    if (w.GEO && w.GEO.setAmapKey) {
-      try { w.GEO.setAmapKey(typeof next.amapKey === "string" ? next.amapKey : ""); } catch (e) {}
-    }
+    var previousKey = w.GEO && w.GEO.directKey ? w.GEO.directKey() : "";
+    var setKey = w.GEO && w.GEO.setAmapKey;
     var store = copy(next);
     delete store.amapKey;
-    w.localStorage.setItem(LS_KEY, JSON.stringify(store));
+    if (setKey) setKey(typeof next.amapKey === "string" ? next.amapKey : "");
+    try {
+      w.localStorage.setItem(LS_KEY, JSON.stringify(store));
+    } catch (error) {
+      if (setKey) {
+        try { setKey(previousKey); }
+        catch (rollbackError) { throw new Error("恢复失败：订单未替换，地图 Key 回退失败，请重新设置 Key"); }
+      }
+      throw error;
+    }
     storageError = "数据已恢复，请重新打开页面后继续";
   }
   function saveProfile(profile) {
@@ -996,6 +1004,7 @@
     next.slots[key] = next.slots[key] || [];
     if (next.slots[key].indexOf(o.id) < 0) next.slots[key].push(o.id);
     o.scheduledOn = iso;
+    o.scheduledAt = iso.slice(5) + " " + ampm;
     return true;
   }
   function createOrder(input, date, ampm, pendingId, customProcesses, allowStack) {
