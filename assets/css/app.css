@@ -21,7 +21,7 @@
 .dev-btn, .dev-home { display: none; }
 
 @media (min-width: 640px) {
-  /* iPhone 17 Pro 机身：黑边 + 钛金属外沿 + 灵动岛 + 侧键（只在桌面预览时出现） */
+  /* iPhone 15 Pro 机身：黑边 + 钛金属外沿 + 灵动岛 + 侧键（只在桌面预览时出现） */
   .device {
     position: relative;
     display: flex;
@@ -91,7 +91,6 @@
   .dev-volu { left: -3px; top: 164px; width: 4px; height: 46px; }
   .dev-vold { left: -3px; top: 222px; width: 4px; height: 46px; }
   .dev-pow { right: -3px; top: 190px; width: 4px; height: 62px; }
-  .dev-cam { right: -3px; top: 292px; width: 4px; height: 30px; }
 
   .shell {
     width: var(--shell-w);

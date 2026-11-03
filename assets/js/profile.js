@@ -127,7 +127,8 @@
           'value="' + esc(draft.name) + '" autocomplete="off">' +
       "</div>" +
       '<button class="btn primary mt14" id="pfSave">保存</button>' +
-      '<input type="file" id="pfFile" accept="image/*" style="display:none">'
+      '<input type="file" id="pfFile" accept="image/*" style="display:none">',
+      "profile"   /* 可重建标识：从设置跳去队伍配置后，返回能回到这一层 */
     );
 
     var fileEl = document.getElementById("pfFile");
@@ -158,7 +159,7 @@
 
     document.getElementById("pfGear").addEventListener("click", function () {
       if (!opt.onMore) return;
-      U.closeSheet();
+      /* 设置叠在资料弹层之上：返回键先退回资料弹层，再按一次才回页面 */
       opt.onMore();
     });
 

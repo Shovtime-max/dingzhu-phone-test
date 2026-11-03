@@ -875,6 +875,10 @@
     assertFresh();
     var snap = copy(ADDED);
     snap.profile = w.PROFILE.get();
+    /* 设备级配置也要跟着走：高德 Key（直连模式下存在本机）和队伍出发地（ADDED.base，
+       本来就在快照里，这里只是把它写明，恢复后别再让用户重新定位一次）。
+       定位缓存 roofgeo.loc.v1 不进备份 —— 12 小时就过期，恢复出来也是过期的。 */
+    try { snap.amapKey = (w.GEO && w.GEO.directKey) ? w.GEO.directKey() : ""; } catch (e) { snap.amapKey = ""; }
     // Earlier versions could copy temporary object URLs into deleted orders.
     // Actual photos are backed up separately from IndexedDB.
     snap.orders.concat(snap.trash.map(function (t) { return t.payload; }), Object.keys(snap.orderPatches).map(function (id) { return snap.orderPatches[id]; })).forEach(function (o) { delete o.media; delete o.sample; });
@@ -899,6 +903,11 @@
     if (a.profile !== undefined && (!object(a.profile) || typeof a.profile.name !== "string" || !a.profile.name.trim() || a.profile.name.length > 8 || typeof a.profile.avatar !== "string" ||
         (a.profile.avatar && (!/^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(a.profile.avatar) || a.profile.avatar.length > 260 * 1024)))) throw new Error("备份中的资料格式不正确");
     if (a.mediaSet !== undefined && !validId(a.mediaSet)) throw new Error("备份中的留档编号不正确");
+    /* 高德 Key 跟着备份走：可空；有值只允许字母数字（高德 Key 本身就是 32 位字符） */
+    if (a.amapKey !== undefined && a.amapKey !== null) {
+      if (typeof a.amapKey !== "string" || a.amapKey.length > 64 ||
+          (a.amapKey && !/^[A-Za-z0-9]+$/.test(a.amapKey))) throw new Error("备份中的地图 Key 不正确");
+    }
     ["revision", "idSeq"].forEach(function (k) { if (a[k] !== undefined && (!Number.isSafeInteger(a[k]) || a[k] < 0)) throw new Error("备份中的流水号不正确"); });
     function unique(rows) {
       var seen = new Set(); rows.forEach(function (r) { if (seen.has(r.id)) throw new Error("备份包含重复记录"); seen.add(r.id); });
@@ -953,7 +962,9 @@
     return {orders:rows.length, pending:Object.keys(pending).filter(function (id) { return !pending[id].orderId; }).length,
       trash:a.trash.filter(function (t) { return !t.purged; }).length,
       teams:base.teams.filter(function (t) { return a.teamDeleted.indexOf(t.id) < 0; }).length + a.teams.length,
-      quote:rows.reduce(function (n, o) { return n + o.quote; }, 0), paid:rows.reduce(function (n, o) { return n + o.paid; }, 0)};
+      quote:rows.reduce(function (n, o) { return n + o.quote; }, 0), paid:rows.reduce(function (n, o) { return n + o.paid; }, 0),
+      /* 设备配置随备份走的部分，供界面说明「这份备份带了什么」 */
+      place:(a.base && a.base.name) || "", hasKey:!!a.amapKey};
   }
   /* Caller holds withStorageLock. A single localStorage write switches business data,
      profile and the media generation together; staged files never replace current files. */
@@ -962,17 +973,25 @@
     var next = checkBackupState(input);
     next.revision = Math.max(Number(ADDED.revision) || 0, Number(next.revision) || 0) + 1;
     next.idSeq = Math.max(idSeq(), Number(next.idSeq) || 0);
-    w.localStorage.setItem(LS_KEY, JSON.stringify(next));
+    /* 地图 Key 属于设备配置，不塞进业务快照里（否则它会跟着 commit 到处漂，
+       也会和 dingzhu.amapkey.v1 那份打架）；先单独写回本机，再从存储副本里摘掉。 */
+    if (w.GEO && w.GEO.setAmapKey) {
+      try { w.GEO.setAmapKey(typeof next.amapKey === "string" ? next.amapKey : ""); } catch (e) {}
+    }
+    var store = copy(next);
+    delete store.amapKey;
+    w.localStorage.setItem(LS_KEY, JSON.stringify(store));
     storageError = "数据已恢复，请重新打开页面后继续";
   }
   function saveProfile(profile) {
     return commit(function (next) { next.profile = copy(profile); return profile; });
   }
-  /* allowStack=true：允许同一个上/下午叠不止一单（改期拖拽用，两个队本来就能同时上） */
-  function stageSlot(next, text, ampm, o, allowStack) {
+  /* 一个上午 / 下午可以叠任意多单：现场就是几个队同时上、或者一单收尾一单开工。
+     数量不设上限，也不再拦「这个档期已有订单」；同一单重复落位只保留一条。
+     「排满」是人工标记（fullDays），跟单数无关。 */
+  function stageSlot(next, text, ampm, o) {
     var sl = slotOf(text, ampm), iso = fullSlotDate(text);
     if (!sl || !iso) throw new Error("没有找到有效档期，请重新选择");
-    if (!allowStack && (sl.items || []).some(function (it) { return it.oid !== o.id; })) throw new Error("这个档期已有订单，请重新选择空档");
     var key = iso + "|" + ampm;
     next.slots[key] = next.slots[key] || [];
     if (next.slots[key].indexOf(o.id) < 0) next.slots[key].push(o.id);
@@ -1444,6 +1463,26 @@
       validateMoney(snap); next.orderPatches[id] = snap; return id;
     }).then(byId);
   }
+  /* 状态更正：把人工动作往回退一步（点错了能改回来）。
+     只清时间戳，不动钱、不动留档 —— 收款流水是已经发生的事实，
+     取消结清不会把已收的钱抹掉，要退钱得单独处理。 */
+  function undoOrder(id, action) {
+    return commit(function (next) {
+      var o = byId(id); if (!o) throw new Error("订单不存在");
+      var snap = orderSnapshot(o), st = state(o);
+      if (action === "unstart") {
+        if (st !== "doing") throw new Error("只有「施工中」的单可以取消开工");
+        snap.startedAt = ""; snap.start = ""; snap.startedOn = "";
+      } else if (action === "unfinish") {
+        if (st !== "done") throw new Error("只有「待结清」的单可以取消完工，已结清的要先取消结清");
+        snap.doneAt = ""; snap.done = ""; snap.doneOn = "";
+      } else if (action === "unsettle") {
+        if (st !== "settled") throw new Error("这单还没结清，不用取消");
+        snap.settledAt = ""; snap.settledOn = "";
+      } else throw new Error("无效的更正动作");
+      validateMoney(snap); next.orderPatches[id] = snap; return id;
+    }).then(byId);
+  }
   /* 完工 → 结清 是两步：这单收满款也要人再点一次「确认结清」 */
   function settleOrder(id, channel) {
     if (!channel) return transitionOrder(id, "settle");
@@ -1486,6 +1525,10 @@
   ORDERS.forEach(function (o) {
     if (o.settledAt || o.settledOn || !o.doneAt) return;
     if (o.status !== "已结清") return;
+    /* 人工点过「取消结清」的单，补丁里 settledAt 是空串 —— 不能再按老文案补回来，
+       否则刷新一次取消就白点了 */
+    var patch = ADDED.orderPatches[o.id];
+    if (patch && Object.prototype.hasOwnProperty.call(patch, "settledAt") && !patch.settledAt) return;
     o.settledOn = o.doneOn || "";
     o.settledAt = o.doneOn || o.doneAt || "";
   });
@@ -1546,6 +1589,17 @@
   function rooms(o) { return (o.main || 0) + (o.wing || 0); }
   function due(o) { return Math.max(0, o.quote - o.paid); }
 
+  /* 收款口径：只有「已经完工」的单才叫待收、才进催款名单。
+     待开工 / 施工中的尾款还没到收款节点 —— 活没干完不催钱，
+     所以它们不进待收合计、不进「N 家待催」、不进催收名单。 */
+  function finished(o) {
+    var s = state(o);
+    return s === "done" || s === "settled";
+  }
+  function collectDue(o) { return finished(o) ? due(o) : 0; }
+  /* 在施未结：活还没干完的尾款，单独统计，只做参考不催 */
+  function openDue(o) { return finished(o) ? 0 : due(o); }
+
   /* ---------- 跨月区间：把订单归到「业务月份」，再按区间筛 ---------- */
   /* 月份口径：优先开工日 scheduledOn / startedOn，其次完工日 doneOn，
      老数据只有 "10-02" 这种 MM-DD，用今天所属年份补全 */
@@ -1584,19 +1638,23 @@
     var s = {
       count: arr.length, rooms: 0, quote: 0, paid: 0, due: 0,
       doneCount: 0, doneRooms: 0, dueCount: 0,
+      openDue: 0, openCount: 0,
       teams: {}
     };
     arr.forEach(function (o) {
       s.rooms += rooms(o);
       s.quote += o.quote;
       s.paid += o.paid;
-      s.due += due(o);
+      /* due 只含完工未收（可催的钱）；openDue 是在施/待开工的尾款，不催 */
+      s.due += collectDue(o);
+      s.openDue += openDue(o);
       var st = state(o);
       if (st === "done" || st === "settled") {
         s.doneCount++;
         s.doneRooms += rooms(o);
       }
-      if (due(o) > 0) s.dueCount++;
+      if (collectDue(o) > 0) s.dueCount++;
+      if (openDue(o) > 0) s.openCount++;
       (o.teams || []).forEach(function (tid) {
         s.teams[tid] = s.teams[tid] || { rooms: 0, count: 0, quote: 0, paid: 0 };
         s.teams[tid].rooms += rooms(o);
@@ -1636,8 +1694,9 @@
     return Math.max(0, Math.round((new Date(TODAY.y, TODAY.m - 1, TODAY.d) - d) / 86400000));
   }
 
+  /* 催款名单：只列完工未结清的单。没完工的不进来 —— 活没干完不该催款 */
   function dueOrders() {
-    return ORDERS.filter(function (o) { return due(o) > 0; })
+    return ORDERS.filter(function (o) { return collectDue(o) > 0; })
       .sort(function (a, b) { return overdueDays(b) - overdueDays(a); });
   }
 
@@ -1677,6 +1736,9 @@
     },
     rooms: rooms,
     due: due,
+    finished: finished,
+    collectDue: collectDue,
+    openDue: openDue,
     stats: stats,
     orderMonth: orderMonth,
     ordersInRange: ordersInRange,
@@ -1692,6 +1754,7 @@
     createOrder: createOrder,
     recordPayment: recordPayment,
     transitionOrder: transitionOrder,
+    undoOrder: undoOrder,
     settleOrder: settleOrder,
     parseMoney: parseMoney,
     fullSlotDate: fullSlotDate,

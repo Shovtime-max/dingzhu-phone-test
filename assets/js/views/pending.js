@@ -72,7 +72,7 @@
         "</div>" +
 
         (paid
-          ? '<div class="pd-paidline">已收 ¥' + U.n(paid) + " · 待收 ¥" + U.n(Math.max(0, p.budget - paid)) + "</div>"
+          ? '<div class="pd-paidline">已收 ¥' + U.n(paid) + " · 预算余 ¥" + U.n(Math.max(0, p.budget - paid)) + "</div>"
           : "") +
 
         '<div class="pd-tags"><button type="button" class="pill line" data-act="teams" data-id="' + U.esc(p.id) + '">' + U.icon("users", 12) + "队伍 · " + U.esc(D.teamNames(ord ? ord.teams : p.teams) || "选择队伍") + '</button></div>' +

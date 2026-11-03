@@ -21,11 +21,15 @@
         '<div class="hero-split">' +
           "<div><em>总报价</em><b>¥" + U.n(s.quote) + "</b></div>" +
           '<div><em>已收</em><b class="g">¥' + U.n(s.paid) + "</b></div>" +
-          '<div><em>待收</em><b class="o">¥' + U.n(s.due) + "</b></div>" +
+          '<div><em>完工待收</em><b class="o">¥' + U.n(s.due) + "</b></div>" +
         "</div>" +
+        /* 没完工的单不算待收、不催款：尾款另起一行说明，避免看成「钱少了」 */
+        (s.openDue > 0
+          ? '<div class="hero-note">另有 ' + s.openCount + " 单未完工 · 尾款 ¥" + U.n(s.openDue) + " 未到收款节点，不计入待收</div>"
+          : "") +
         '<div class="hero-foot">' +
           "<span>" + s.count + " 单 · 完工率 " + U.pct(s.doneRate, 0) + "</span>" +
-          '<span class="hf-due">' + s.dueCount + " 家待催</span>" +
+          '<span class="hf-due">' + (s.dueCount ? s.dueCount + " 家待催" : scope + "无待催") + "</span>" +
           '<button class="hero-link" id="btnCollect" type="button">' + U.icon("phone", 12) + "催单表</button>" +
         "</div>" +
       "</section>"
@@ -164,22 +168,27 @@
   function placeOrdersSheet(pt, list, level) {
     var rows = list.filter(function (o) {
       return level === "village" ? (o.town === pt.town && (o.village || "未标") === pt.name) : o.town === pt.town;
-    }).sort(function (a, b) { return D.due(b) - D.due(a); });
+    }).sort(function (a, b) { return D.collectDue(b) - D.collectDue(a) || D.due(b) - D.due(a); });
     if (!rows.length) { U.toast("这里本月没有单子"); return; }
     var quote = rows.reduce(function (a, o) { return a + (Number(o.quote) || 0); }, 0);
-    var dueAll = rows.reduce(function (a, o) { return a + D.due(o); }, 0);
+    /* 只有完工未结清的钱才叫待收；在施的单只标状态，不挂「待收」 */
+    var dueAll = rows.reduce(function (a, o) { return a + D.collectDue(o); }, 0);
     var nGeo = rows.filter(function (o) {
       return o.geo && typeof o.geo.lat === "number" && isFinite(o.geo.lat);
     }).length;
     var body = rows.map(function (o) {
-      var dd = D.due(o);
+      var dd = D.collectDue(o), st = D.state(o);
+      var tail = dd > 0 ? "待收 ¥" + U.n(dd)
+        : st === "settled" ? "已结清"
+        : st === "done" ? "已收满 · 待结清"
+        : st === "doing" ? "施工中"
+        : "待开工";
       return (
         '<div class="wx-orow">' +
           '<div class="wx-orow-l"><b>' + U.esc(o.owner || "未填业主") + "</b>" +
             '<span>' + U.esc(o.village || o.addr || "—") + "</span></div>" +
           '<div class="wx-orow-r"><b>¥' + U.n(o.quote) + "</b>" +
-            '<span class="' + (dd > 0 ? "orange-t" : "mut") + '">' +
-            (dd > 0 ? "待收 ¥" + U.n(dd) : "已结清") + "</span></div>" +
+            '<span class="' + (dd > 0 ? "orange-t" : "mut") + '">' + tail + "</span></div>" +
         "</div>"
       );
     }).join("");
@@ -188,7 +197,7 @@
       "<h3>" + U.esc(level === "village" ? pt.town + " · " + pt.name : pt.name) + "</h3>" +
       '<div class="sub">' + rows.length + " 单 · " +
         rows.reduce(function (a, o) { return a + D.rooms(o); }, 0) + " 间 · 报价 ¥" + U.n(quote) +
-        (dueAll > 0 ? " · 待收 ¥" + U.n(dueAll) : "") +
+        (dueAll > 0 ? " · 完工待收 ¥" + U.n(dueAll) : "") +
         (nGeo ? " · " + nGeo + " 单有现场定位" : " · 按镇级坐标显示") + "</div>" +
       '<div style="max-height:52vh;overflow-y:auto">' + body + "</div>"
     );
@@ -348,12 +357,21 @@
 
   function collectSheet() {
     var dues = D.dueOrders();
+    /* 名单只收完工未结清的单；一单都没完工就别摆一张空催款表 */
+    if (!dues.length) {
+      return (
+        "<h3>催收总名单（0 家）</h3>" +
+        '<div class="sub">当前没有完工未结清的单。还没完工的活不计入待收、也不催款 —— 完工后会自动出现在这里。</div>' +
+        '<button type="button" class="btn ghost mt14" data-sheet-back>返回</button>'
+      );
+    }
+    var sum = dues.reduce(function (n, o) { return n + D.due(o); }, 0);
     var rows = dues.map(function (o) {
       var od = D.overdueDays(o);
       return (
         '<div class="fx aic jb" style="padding:11px 12px;border-radius:14px;background:var(--line-soft);margin-bottom:8px">' +
           "<div><div class=\"t-sm b8\">" + U.esc(o.town) + " · " + U.esc(o.owner) + "</div>" +
-          '<div class="t-xs ' + (od > 15 ? "orange-t" : "mut") + ' b7 mt2">超 ' + od + " 天 · 欠 ¥" + U.n(D.due(o)) + "</div></div>" +
+          '<div class="t-xs ' + (od > 15 ? "orange-t" : "mut") + ' b7 mt2">' + (od > 0 ? "超 " + od + " 天" : "今天完工") + " · 欠 ¥" + U.n(D.due(o)) + "</div></div>" +
           '<button class="btn xs" data-call="' + U.esc(o.phone) + '" style="background:var(--brand);color:#fff">' + U.icon("phone", 11) + "催收</button>" +
         "</div>"
       );
@@ -361,7 +379,7 @@
 
     return (
       "<h3>催收总名单（" + dues.length + " 家）</h3>" +
-      '<div class="sub">待回款合计 ¥' + U.n(D.stats().due) + " · 建议午间电话联系</div>" +
+      '<div class="sub">待回款合计 ¥' + U.n(sum) + " · 只含已完工未结清，含其他月份 · 建议午间电话联系</div>" +
       '<div style="max-height:46vh;overflow-y:auto">' + rows + "</div>" +
       '<button class="btn primary mt12" id="btnCopySms">一键复制全员提醒短信</button>'
     );

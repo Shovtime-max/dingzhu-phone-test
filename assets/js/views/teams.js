@@ -77,7 +77,7 @@
   w.VIEWS.teams = function () {
     var bar =
       '<div class="navline">' +
-        '<a class="back" href="#/analytics" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
+        '<a class="back" data-back="#/analytics" href="' + U.esc(w.APP.backHref("#/analytics")) + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
         '<div class="col navline-mid"><div class="navline-title">队伍配置</div>' +
         '<div class="navline-sub">建队与人员 · 设一次长期用</div></div>' +
         '<button class="nav-add" id="btnNewTeam" type="button">' + U.icon("plus", 13) + "建队</button>" +

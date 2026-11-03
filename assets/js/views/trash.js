@@ -65,7 +65,7 @@
 
     var bar =
       '<div class="navline">' +
-        '<a class="back" href="#/orders" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
+        '<a class="back" data-back="#/orders" href="' + U.esc(w.APP.backHref("#/orders")) + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
         '<div class="col navline-mid"><div class="navline-title">回收站</div>' +
         '<div class="navline-sub" id="trSub">' + subText() + "</div></div>" +
         '<button class="icon-btn bare" aria-label="说明" id="trHelp">' + U.icon("info", 19) + "</button>" +

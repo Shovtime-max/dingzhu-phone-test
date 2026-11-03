@@ -73,7 +73,7 @@
   w.VIEWS.order = function (params) {
     var o = D.byId(params.id);
     if (!o) return {
-      bar:'<div class="navline"><a class="back" href="' + U.esc(w.APP && w.APP.orderBackHref ? w.APP.orderBackHref() : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + '</a><div class="navline-title">工单详情</div></div>',
+      bar:'<div class="navline"><a class="back" data-back="#/orders" href="' + U.esc(w.APP && w.APP.orderBackHref ? w.APP.orderBackHref() : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + '</a><div class="navline-title">工单详情</div></div>',
       body:'<div class="empty"><h4>订单不存在</h4><p>请返回订单列表核对单号</p></div>', tab:"orders"
     };
     var mediaEntry = w.MEDIA && w.MEDIA.entry(o.id);
@@ -121,7 +121,7 @@
 
     var bar =
       '<div class="navline">' +
-        '<a class="back" href="' + U.esc(w.APP && w.APP.orderBackHref ? w.APP.orderBackHref() : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
+        '<a class="back" data-back="#/orders" href="' + U.esc(w.APP && w.APP.orderBackHref ? w.APP.orderBackHref() : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
         '<div class="col navline-mid"><div class="navline-title">工单详情</div>' +
         '<div class="navline-sub">' + U.esc(o.id) + " · " + U.esc(o.town + o.village) + "</div></div>" +
         U.statusPill(st) +
@@ -259,6 +259,15 @@
       cta = '<div class="form-foot"><button class="btn primary" disabled>' +
         U.icon("check", 15) + "本单已结清，无需操作</button></div>";
     }
+    /* 点错状态能退回来：开工 ↔ 待开工、完工 ↔ 施工中、结清 ↔ 待结清 */
+    var undoAction = st === "doing" ? "unstart" : st === "done" ? "unfinish" : st === "settled" ? "unsettle" : "";
+    var undoText = st === "doing" ? "点错了？取消开工 · 回到待开工"
+      : st === "done" ? "点错了？取消完工 · 回到施工中"
+      : st === "settled" ? "点错了？取消结清 · 回到待结清" : "";
+    if (undoAction) {
+      cta += '<button type="button" class="undo-link" id="btnUndo" data-undo="' + undoAction + '">' +
+        U.icon("undo", 13) + "<span>" + undoText + "</span></button>";
+    }
     cta += '<div style="height:6px"></div>';
 
     var body = hero + pay + spec + photo + cta;
@@ -345,6 +354,34 @@
     function finishOrder() {
       return writeAction(function () { return D.transitionOrder(o.id, "finish"); }, function () {
         U.toast("已完工 · 留档 " + D.mediaStat(o).count + " 项");
+      });
+    }
+
+    /* ---------- 状态更正：取消开工 / 取消完工 / 取消结清 ----------
+       现场点错是常事（手一抖就完工了），退回去只改状态，不删任何记录 */
+    var UNDO = {
+      unstart: { h: "取消开工？", d: "这单会回到「待开工」，档期和班组都不变。", ok: "确认取消开工", after: "已取消开工 · 回到待开工" },
+      unfinish: { h: "取消完工？", d: "这单会回到「施工中」，完工日期清空；已登记的收款和完工留档都保留。", ok: "确认取消完工", after: "已取消完工 · 回到施工中" },
+      unsettle: { h: "取消结清？", d: "这单会回到「待结清」。已收的钱不会退，只是重新变成待确认结清。", ok: "确认取消结清", after: "已取消结清 · 回到待结清" }
+    };
+    function undoSheet(action) {
+      var conf = UNDO[action];
+      if (!conf) return;
+      var mask = U.sheet(
+        "<h3>" + conf.h + "</h3>" +
+        '<div class="sub">' + conf.d + "</div>" +
+        '<div class="key-warn" style="margin-top:8px">' + U.icon("alert", 12) +
+          "<span>只改状态，不删记录：收款流水、留档照片、档期都照旧。</span></div>" +
+        '<button class="btn primary mt14" id="undoGo">' + conf.ok + "</button>" +
+        '<button class="btn ghost mt10" data-sheet-back>返回</button>'
+      );
+      mask.addEventListener("click", function (e) {
+        var go = e.target.closest("#undoGo");
+        if (!go || go.disabled) return;
+        go.disabled = true;
+        return writeAction(function () { return D.undoOrder(o.id, action); }, function () {
+          U.closeSheet(); U.toast(conf.after);
+        });
       });
     }
 
@@ -508,6 +545,11 @@
       });
       var changeDate = document.getElementById("btnEditSpec2");
       if (changeDate) changeDate.addEventListener("click", rescheduleSheet);
+
+      var undoBtn = document.getElementById("btnUndo");
+      if (undoBtn) undoBtn.addEventListener("click", function () {
+        undoSheet(undoBtn.getAttribute("data-undo"));
+      });
     }
 
     return { bar: bar, body: body, mount: mount, tab: "orders" };

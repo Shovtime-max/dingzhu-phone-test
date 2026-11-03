@@ -570,6 +570,15 @@
   color: var(--ink-3);
 }
 .hero-foot .hf-due { color: #b06000; }
+
+/* 在施尾款说明：没完工的钱不算「待收」，单独一行讲清楚，不混进催款口径 */
+.hero-note {
+  margin-top: 8px;
+  font-size: var(--fs-tag);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
 .hero-link {
   margin-left: auto;
   display: inline-flex;
@@ -920,6 +929,29 @@
   padding: 18px 0 10px;
 }
 .form-foot .btn { flex: 1; }
+
+/* 状态更正入口：主按钮下面一行浅色虚线按钮，不抢主要动作的位置 */
+.undo-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.undo-link:active { background: var(--line-soft); }
+.undo-link svg { flex: none; opacity: .75; }
 
 /* ---------- 记一单去向按钮：按下反馈 → 平滑收拢 → 一笔画勾 → 粒子迸发 ---------- */
 .form-foot .dest {
@@ -2549,3 +2581,32 @@ body.is-dragging .ag-slot .ag-ampm { color: var(--brand); opacity: 0.8; }
 .tm-error{position:absolute;z-index:6;top:12px;left:50%;transform:translateX(-50%);max-width:90%;background:rgba(255,255,255,.95);color:#7d3f1c;padding:8px 12px;border-radius:10px;font-size:12px;box-shadow:0 2px 10px rgba(30,45,60,.14);pointer-events:none}.tm-error[hidden]{display:none}
 
 .cal-hd{gap:2px}.cal-cell.today .cal-d{width:19px;height:19px;flex:none}
+
+/* 上下午不限单数：该时段已有活，也给一个「再加一单」的入口 */
+.ag-add {
+  flex: none;
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  padding: 0;
+  border: 1px dashed var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 15px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ag-add:active {
+  border-color: var(--brand);
+  background: var(--brand-light);
+  color: var(--brand);
+}
+
+/* 弹层分层：下面那层只隐藏，返回时原样恢复（事件与已填内容都不丢） */
+.sheet-mask.sheet-under {
+  display: none !important;
+}

@@ -73,7 +73,7 @@
 
     var bar =
       '<div class="navline">' +
-        '<a class="back" href="' + (src ? "#/pending" : "#/orders") + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
+        '<a class="back" data-back="' + (src ? "#/pending" : "#/orders") + '" href="' + U.esc(w.APP.backHref(src ? "#/pending" : "#/orders")) + '" aria-label="返回">' + U.icon("arrowLeft", 18) + "</a>" +
         '<div class="col navline-mid"><div class="navline-title">' + (src ? "补充信息" : "记一单") + "</div></div>" +
         '<button class="icon-btn bare" id="btnHelp" aria-label="帮助">' + U.icon("info", 19) + "</button>" +
       "</div>";
@@ -83,7 +83,7 @@
       ? '<div class="for-bar">' + U.icon("clock", 14) +
           '<div class="col"><b>正在补充 ' + U.esc(src.id) + " 的信息</b>" +
           "<span>" + U.esc(src.stage) + " · " + (src.rooms || 0) + " 间 · 预算 ¥" + U.n(src.budget) + "</span></div>" +
-          '<a class="fb-x" href="#/pending">返回</a>' +
+          '<a class="fb-x" data-back="#/pending" href="' + U.esc(w.APP.backHref("#/pending")) + '">返回</a>' +
         "</div>"
       : "";
 

@@ -119,22 +119,149 @@
     setTimeout(function () { if (wrap.parentNode) wrap.remove(); }, 2000);
   }
 
-  /* ---------- 底部抽屉 ---------- */
-  function sheet(html) {
-    closeSheet();
+  /* ---------- 底部抽屉 ----------
+     弹层参与浏览器历史：第一次打开压一条记录（地址不变），
+     系统/浏览器「返回」时只收掉弹层、页面留在原地。
+     · 弹层分层：设置 → 工序预设/备份/地图Key/出发地，返回键先退回设置这一层，
+       再按一次才退出弹层回到页面（不会一步跳两层）
+     · 下层只隐藏不销毁，事件绑定和已填内容都不会丢
+     · 整组弹层共用一条历史，不会越开越多
+     · 从弹层里跳到别的页面用 navigateFromSheet()：复用这条历史改地址
+     · 跳出去时用 takeSheetKeys() 把这一层的「可重建标识」交回给路由，
+       页面返回时据此把弹层原样重新打开（回到设置这一层，不跳上上页）
+     ------------------------------------------------------------------ */
+  var sheetDepth = 0;
+  /* 自己调 history.back() 收起弹层时，会异步收到一次 popstate；
+     这一下要忽略，否则会把紧接着打开的新弹层一起顶掉 */
+  var ignorePop = 0;
+  /* 弹层层级栈，元素从下到上 */
+  var sheetStack = [];
+  /* 与 sheetStack 一一对应的「可重建标识」：
+     有标识说明这一层能用代码重新打开（如 "profile" / "settings"），
+     从这一层跳去页面后，按返回就能回到这一层，而不是越过它跳回上上页 */
+  var sheetKeys = [];
+
+  function makeMask(html) {
     var shell = document.querySelector(".shell");
     var mask = document.createElement("div");
     mask.className = "sheet-mask";
     mask.id = "sheetMask";
     mask.innerHTML = '<div class="sheet" role="dialog" aria-modal="true"><div class="sheet-grab"></div>' + html + "</div>";
-    mask.addEventListener("click", function (e) { if (e.target === mask) closeSheet(); });
+    mask.addEventListener("click", function (e) {
+      if (e.target === mask) return closeSheet();
+      if (e.target.closest("[data-sheet-back]")) { e.preventDefault(); sheetBack(); }
+    });
     shell.appendChild(mask);
     return mask;
   }
-  function closeSheet() {
+
+  function sheet(html, opt) {
+    var key = typeof opt === "string" ? opt : (opt && opt.key ? String(opt.key) : "");
+    /* 旧层压到下面去，不销毁 */
+    var cur = document.getElementById("sheetMask");
+    if (cur) { cur.removeAttribute("id"); cur.classList.add("sheet-under"); }
+    var mask = makeMask(html);
+    sheetStack.push(mask);
+    sheetKeys.push(key || null);
+    if (sheetStack.length > 8) {
+      var drop = sheetStack.shift();
+      sheetKeys.shift();
+      if (drop && drop.parentNode) drop.remove();
+    }
+    if (!sheetDepth) {
+      try {
+        /* 给弹层这条历史单独一个更大的序号：
+           收弹层时 back 回上一条，序号变小，能被识别成「后退了」；
+           若沿用页面序号，后退就识别不出来，导航栈会多压一条。 */
+        var st = {};
+        try { st = w.history.state || {}; } catch (e2) {}
+        st.dzSeq = (typeof st.dzSeq === "number" ? st.dzSeq : 0) + 1;
+        st.dzSheet = 1;
+        w.history.pushState(st, "");
+        sheetDepth = 1;
+      } catch (e) { sheetDepth = 0; }
+    }
+    return mask;
+  }
+
+  /* 清空整组弹层（DOM） */
+  function clearSheets() {
+    sheetStack.forEach(function (el) { if (el && el.parentNode) el.remove(); });
+    sheetStack = [];
+    sheetKeys = [];
     var m = document.getElementById("sheetMask");
     if (m) m.remove();
   }
+
+  /* 退一层：有下一层就恢复它；已经是最后一层就退出弹层 */
+  function sheetBack() {
+    var cur = document.getElementById("sheetMask");
+    if (cur) cur.remove();
+    sheetStack.pop();
+    sheetKeys.pop();
+    var top = sheetStack[sheetStack.length - 1];
+    if (top && top.parentNode) {
+      top.classList.remove("sheet-under");
+      top.id = "sheetMask";
+      return true;
+    }
+    clearSheets();
+    if (sheetDepth) { sheetDepth = 0; ignorePop++; try { w.history.back(); } catch (e) {} }
+    return false;
+  }
+
+  /* opt.keepHistory：只收 DOM，把那条历史留给下一个弹层或下一次页面跳转 */
+  function closeSheet(opt) {
+    clearSheets();
+    if (opt && opt.keepHistory) return;
+    if (sheetDepth) { sheetDepth = 0; ignorePop++; try { w.history.back(); } catch (e) {} }
+  }
+  /* 从弹层内部跳转到某个页面：收掉弹层并把这条历史改写成目标地址。
+     同时把这组弹层的「可重建标识」留在 lastSheetKeys 里：
+     目标页面的返回键据此把弹层原样重新打开，回到「设置」这一层，
+     而不是一步退到设置之前的上上页。 */
+  var lastSheetKeys = null;
+  function navigateFromSheet(href) {
+    var keys = sheetKeys.slice();
+    lastSheetKeys = keys.length && keys.every(function (k) { return !!k; }) ? keys : null;
+    clearSheets();
+    sheetDepth = 0;
+    /* 保留页面序号 dzSeq，只把地址改写掉：这条历史仍算「原来那一页往前一步」 */
+    var st = {};
+    try { st = w.history.state || {}; } catch (e2) {}
+    delete st.dzSheet;
+    try { w.history.replaceState(st, "", href); } catch (e) { w.location.hash = href; return false; }
+    return true;
+  }
+  function takeSheetKeys() {
+    var k = lastSheetKeys;
+    lastSheetKeys = null;
+    return k;
+  }
+  /* 页面已经换过一次（hash 变了）时收弹层：只清 DOM，不再回退历史 */
+  function dropSheet() {
+    clearSheets();
+    sheetDepth = 0;
+  }
+  /* 系统/浏览器返回：一次退一层弹层，退到底才回页面 */
+  w.addEventListener("popstate", function () {
+    if (ignorePop > 0) { ignorePop--; return; }
+    if (!sheetStack.length && !document.getElementById("sheetMask")) return;
+    var cur = document.getElementById("sheetMask");
+    if (cur) cur.remove();
+    sheetStack.pop();
+    sheetKeys.pop();
+    var top = sheetStack[sheetStack.length - 1];
+    if (top && top.parentNode) {
+      top.classList.remove("sheet-under");
+      top.id = "sheetMask";
+      /* 补回刚被系统返回吃掉的那一条，保证再按返回还能继续退 */
+      try { w.history.pushState({ dzSheet: 1 }, ""); } catch (e) {}
+      return;
+    }
+    clearSheets();
+    sheetDepth = 0;
+  });
 
   /* ---------- 左滑露出操作（列表卡片通用，零依赖） ----------
      opt: { item: ".swipe", act: ".swipe-acts", onAct(动作名, 卡片元素) }
@@ -334,7 +461,8 @@
     sheet('<h3>工序预设</h3><div class="sub">长按胶囊可删除预设；也可每行编辑一项，最多 30 项。历史订单保持原记录。</div>' +
       '<div class="tagrow mt12" id="processPresetChips"></div>' +
       '<textarea class="inline-input preset-editor" id="processPresetInput" rows="7" aria-label="工序预设">' + esc(w.DATA.processPresets().join('\n')) + '</textarea>' +
-      '<button type="button" class="btn primary mt14" id="saveProcessPresets">保存预设</button>');
+      '<button type="button" class="btn primary mt14" id="saveProcessPresets">保存预设</button>' +
+      '<button type="button" class="btn ghost mt10" data-sheet-back>返回</button>');
     var chips = document.getElementById('processPresetChips');
     function paint() { chips.innerHTML = w.DATA.processPresets().map(function (s) { return '<button type="button" class="tagchip" data-process="' + esc(s) + '">' + esc(s) + '</button>'; }).join(''); }
     paint();
@@ -361,7 +489,7 @@
         return '<div class="rowline"><span class="k">' + esc(m.name) + (m.role ? ' · ' + esc(m.role) : '') + '</span><span class="v">' + (safePhone ? '<a href="tel:' + esc(safePhone) + '">☎ ' + esc(phone) + '</a>' : '未填写电话') + '</span></div>';
       }).join("") : '<div class="sub">暂无队伍成员</div>');
     }).join("");
-    sheet(html + '<button type="button" class="btn ghost mt14" onclick="UI.closeSheet()">关闭</button>');
+    sheet(html + '<button type="button" class="btn ghost mt14" data-sheet-back>返回</button>');
   }
   document.addEventListener("click", function (e) {
     var target = e.target.closest && e.target.closest("[data-team-info]"); if (!target) return;
@@ -371,7 +499,7 @@
   w.UI = {
     teamInfo: teamInfo, teamPicker: teamPicker, bindTeamPicker: bindTeamPicker, teamSheet: teamSheet, processPresetSheet: processPresetSheet, bindProcessDelete: bindProcessDelete,
     icon: icon, SB: SB, n: n, yuan: yuan, pct: pct, esc: esc,
-    statusPill: statusPill, toast: toast, sheet: sheet, closeSheet: closeSheet, STATUS: STATUS,
+    statusPill: statusPill, toast: toast, sheet: sheet, closeSheet: closeSheet, sheetBack: sheetBack, dropSheet: dropSheet, navigateFromSheet: navigateFromSheet, takeSheetKeys: takeSheetKeys, STATUS: STATUS,
     bindSwipe: bindSwipe
   };
 })(window);

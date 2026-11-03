@@ -41,6 +41,120 @@
 
   var activeHash = "", positions = {}, departure = null, orderReturn = "#/orders";
   try { var savedReturn = w.sessionStorage.getItem("dingzhu.orderReturn"); if (/^#\/(schedule|orders|pending|analytics)(\?|$)/.test(savedReturn || "")) orderReturn = savedReturn; } catch (e) {}
+
+  /* ------------------------------------------------------------------
+     导航栈：二级页面（工单详情 / 记一单 / 队伍配置 / 回收站）的返回键
+     一律回到真实的上一页，不再硬编码跳订单或分析。
+     栈存 sessionStorage —— iPhone 从后台重载后返回依然准确。
+     ------------------------------------------------------------------ */
+  var navStack = [];
+  try {
+    var savedStack = JSON.parse(w.sessionStorage.getItem("dingzhu.navStack") || "[]");
+    if (Object.prototype.toString.call(savedStack) === "[object Array]") {
+      navStack = savedStack.filter(function (h) { return typeof h === "string" && h.indexOf("#/") === 0; }).slice(-30);
+    }
+  } catch (e) { navStack = []; }
+
+  function saveStack() {
+    try { w.sessionStorage.setItem("dingzhu.navStack", JSON.stringify(navStack)); } catch (e) {}
+  }
+
+  /* 方向判定：给每条历史记录打一个递增序号，序号变小就是后退。
+     不能靠监听 popstate —— 自己触发的 history.back() 是异步的，
+     可能在下一次导航之后才到达，把方向判断污染掉（实测踩过）。
+     · 点链接改 hash 会新建一条（state 为空）→ 打序号，算前进
+     · 弹层 pushState 会复制当前序号，收弹层后退回来时序号不变，不算后退 */
+  var navSeq = null;
+  function stepDirection() {
+    var st = null;
+    try { st = w.history.state; } catch (e) {}
+    if (st && typeof st.dzSeq === "number") {
+      var back = navSeq !== null && st.dzSeq < navSeq;
+      navSeq = st.dzSeq;
+      return back ? "back" : "forward";
+    }
+    navSeq = (navSeq === null ? 0 : navSeq) + 1;
+    try { w.history.replaceState({ dzSeq: navSeq }, ""); } catch (e) {}
+    return "forward";
+  }
+
+  function trackNav(prev, next, dir) {
+    if (!next) return;
+    if (!navStack.length) { navStack.push(next); saveStack(); return; }
+    var last = navStack[navStack.length - 1];
+    if (last === next) return;
+    /* 只有真的后退才弹栈，一步一条，栈始终与浏览器历史同构。
+       其余都按「新进入」压栈：重新访问以前来过的页面也压，
+       不能按「曾经出现过」截断，否则会把中间页丢掉，返回就跳到上上页。 */
+    if (dir === "back" && navStack.length >= 2) { navStack.pop(); saveStack(); return; }
+    if (prev && prev !== next && last !== prev) navStack.push(prev);
+    navStack.push(next);
+    if (navStack.length > 30) navStack.splice(0, navStack.length - 30);
+    saveStack();
+  }
+
+  /* ------------------------------------------------------------------
+     从弹层跳进页面（设置 → 队伍配置 / 回收站）之后，返回要回到「设置」这一层。
+     以前只按页面历史退，弹层不在页面栈里，一按返回就越过设置退回上上页。
+     现在进页面时把弹层链的可重建标识存下来（sheetReturn），
+     返回时先把页面退回去，再照标识把设置（含下面的资料层）原样重新打开。
+     ------------------------------------------------------------------ */
+  var REBUILD_SHEET = {
+    profile: function () { if (w.PROFILE) w.PROFILE.sheet({ onMore: settingsSheet }); },
+    settings: function () { settingsSheet(); }
+  };
+  var sheetReturn = null, pendingSheetKeys = null;
+
+  function saveSheetReturn() {
+    try {
+      if (sheetReturn) w.sessionStorage.setItem("dingzhu.sheetReturn", JSON.stringify(sheetReturn));
+      else w.sessionStorage.removeItem("dingzhu.sheetReturn");
+    } catch (e) {}
+  }
+  try {
+    var savedSheetReturn = JSON.parse(w.sessionStorage.getItem("dingzhu.sheetReturn") || "null");
+    if (savedSheetReturn && typeof savedSheetReturn.page === "string" &&
+        savedSheetReturn.page.indexOf("#/") === 0 &&
+        Object.prototype.toString.call(savedSheetReturn.keys) === "[object Array]" &&
+        savedSheetReturn.keys.length) sheetReturn = savedSheetReturn;
+  } catch (e) {}
+
+  /* 上一页：栈顶往下找第一个不同于当前页的地址 */
+  function backHref(fallback) {
+    for (var i = navStack.length - 2; i >= 0; i--) {
+      var h = navStack[i];
+      if (h && h !== activeHash) return h;
+    }
+    return fallback || "#/schedule";
+  }
+
+  /* 返回：栈顶就是当前页、且栈里的上一页能对上浏览器历史的上一页，
+     才走原生回退（不堆历史）；对不上就直接改地址，宁可多一条历史也不退错页 */
+  function goBack(fallback) {
+    var target = backHref(fallback);
+    if (!target || target === activeHash) return false;
+    /* 这一页是「从设置里跳进来」的：先把弹层链记下来，渲染完再重新打开 */
+    if (sheetReturn && sheetReturn.page === activeHash && sheetReturn.keys.length) {
+      pendingSheetKeys = sheetReturn.keys.slice();
+      sheetReturn = null; saveSheetReturn();
+    }
+    var n = navStack.length;
+    var inSync = n >= 1 && navStack[n - 1] === activeHash;
+    var prev = n >= 2 ? navStack[n - 2] : "";
+    if (inSync && prev === target) { w.history.back(); return true; }
+    w.location.hash = target;
+    return true;
+  }
+
+  /* 所有带 data-back 的返回键走统一逻辑 */
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("[data-back]");
+    if (!b) return;
+    e.preventDefault();
+    var fallback = b.getAttribute("data-back") || b.getAttribute("href") || "";
+    goBack(fallback);
+  });
+
   document.addEventListener("click", function (e) {
     var a = e.target.closest("a[href]");
     var href = a && a.getAttribute("href"), screen = document.getElementById("screen");
@@ -53,7 +167,19 @@
     var leavingOrder = /^#\/order\//.test(activeHash), enteringOrder = /^#\/order\//.test(hash);
     if (activeHash && currentScreen) positions[activeHash] = departure && departure.hash === activeHash ? departure.top : currentScreen.scrollTop;
     departure = null;
-    if (hash !== activeHash && U.closeSheet) U.closeSheet();
+    if (hash !== activeHash) { if (U.dropSheet) U.dropSheet(); else if (U.closeSheet) U.closeSheet(); }
+    /* 这次切换是前进还是后退（hash 没变时不参与方向判断） */
+    var dir = hash !== activeHash ? stepDirection() : "forward";
+    /* 系统返回 / 侧滑返回同样要回到设置那一层：方向和地址都对上就认 */
+    if (sheetReturn && hash !== activeHash) {
+      if (dir === "back" && sheetReturn.page === activeHash && sheetReturn.backTo === hash) {
+        if (!pendingSheetKeys) pendingSheetKeys = sheetReturn.keys.slice();
+        sheetReturn = null; saveSheetReturn();
+      } else if (hash !== sheetReturn.page) {
+        sheetReturn = null; saveSheetReturn();
+      }
+    }
+    trackNav(activeHash, hash, dir);
     if (enteringOrder && !leavingOrder && activeHash && /^#\/(schedule|orders|pending|analytics)(\?|$)/.test(activeHash)) {
       orderReturn = activeHash;
       try { w.sessionStorage.setItem("dingzhu.orderReturn", orderReturn); } catch (e) {}
@@ -94,6 +220,16 @@
       fresh.scrollTop = restoreTop;
       w.requestAnimationFrame(function () { if (document.getElementById("screen") === fresh) fresh.scrollTop = restoreTop; });
     }
+    /* 从队伍配置 / 回收站返回：把设置（以及下面的资料层）重新打开 */
+    if (pendingSheetKeys && pendingSheetKeys.length) {
+      var keys = pendingSheetKeys;
+      pendingSheetKeys = null;
+      keys.forEach(function (k) {
+        var fn = REBUILD_SHEET[k];
+        if (!fn) return;
+        try { fn(); } catch (err) { if (w.console) console.error(err); }
+      });
+    }
   }
 
   function settingsSheet() {
@@ -132,13 +268,31 @@
         '<span class="si">' + U.icon("clipboard", 18) + '</span>' +
         '<div><b>备份与恢复</b><span>保存完整备份文件 · 换设备可恢复</span></div>' +
         '<span class="go">' + U.icon("chevronRight", 16) + '</span>' +
-      '</button>'
+      '</button>' +
+      '<button type="button" class="btn ghost mt14" data-sheet-back>返回</button>',
+      "settings"   /* 可重建标识：跳进队伍配置 / 回收站后，返回回到设置这一层 */
     );
     mask.addEventListener("click", function (e) {
-      if (e.target.closest("[data-go]")) { U.closeSheet(); return; }
-      if (e.target.closest("#processRow")) { U.closeSheet(); U.processPresetSheet(); return; }
-      if (e.target.closest("#geoRow")) { U.closeSheet(); keySheet(); return; }
-      if (e.target.closest("#backupRow")) { U.closeSheet(); w.BACKUP.sheet(); return; }
+      /* 页面型选项：收弹层 + 复用这条历史改成目标地址。
+         同时记住「这一页是从设置里进来的」，
+         返回时按标识把设置重新打开，回到上一层的设置，而不是跳回上上页 */
+      var go = e.target.closest("[data-go]");
+      if (go) {
+        e.preventDefault();
+        var href = go.getAttribute("href"), from = activeHash, keys = null;
+        if (U.navigateFromSheet && U.navigateFromSheet(href)) {
+          keys = U.takeSheetKeys ? U.takeSheetKeys() : null;
+        } else w.location.hash = href;
+        render();
+        if (keys && keys.length) {
+          sheetReturn = { page: w.location.hash, backTo: from, keys: keys };
+          saveSheetReturn();
+        }
+        return;
+      }
+      if (e.target.closest("#processRow")) { U.processPresetSheet(); return; }
+      if (e.target.closest("#geoRow")) { keySheet(); return; }
+      if (e.target.closest("#backupRow")) { w.BACKUP.sheet(); return; }
       if (e.target.closest("#baseRow")) { baseSheet(); return; }
     });
     mask.addEventListener("keydown", function (e) { if (e.target.closest("#baseRow") && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); baseSheet(); } });
@@ -158,7 +312,8 @@
     var mask = U.sheet('<h3>队伍出发地</h3><div class="sub">搜索并选择地图结果，保存后用于天气和出发车程估算。</div>' +
       '<label class="field" for="baseSearch">搜索地点</label><input class="field-box" id="baseSearch" type="search" placeholder="输入村镇、地址或地点名称">' +
       '<button type="button" class="btn ghost mt10" id="baseSearchGo">搜索地图</button><div id="baseResults" class="mt12" role="status" aria-live="polite"></div>' +
-      '<div class="sub mt12" id="baseSelected">当前：' + U.esc((GEO.baseGeo() || {}).full || (GEO.baseGeo() || {}).name || "未设置") + '</div><button type="button" class="btn primary mt14" id="baseSave" disabled>保存出发地</button>');
+      '<div class="sub mt12" id="baseSelected">当前：' + U.esc((GEO.baseGeo() || {}).full || (GEO.baseGeo() || {}).name || "未设置") + '</div><button type="button" class="btn primary mt14" id="baseSave" disabled>保存出发地</button>' +
+      '<button type="button" class="btn ghost mt10" data-sheet-back>返回</button>');
     var input = document.getElementById("baseSearch"), results = document.getElementById("baseResults"), save = document.getElementById("baseSave");
     function search() {
       var q = input.value.trim(), mine = ++seq; selected = null; save.disabled = true;
@@ -217,7 +372,8 @@
         "判断方法——到控制台 Key 列表看「服务平台」这一列，必须是「Web服务」。</span>" +
       "</div>" +
       '<button class="btn primary mt14" id="btnSaveKey">保存并测试</button>' +
-      '<button class="btn ghost sm mt10" id="btnClearKey" style="width:100%">清除 Key（回到本地村镇库）</button>'
+      '<button class="btn ghost sm mt10" id="btnClearKey" style="width:100%">清除 Key（回到本地村镇库）</button>' +
+      '<button class="btn ghost mt10" data-sheet-back>返回</button>'
     );
 
     mask.addEventListener("click", function (e) {
@@ -253,7 +409,8 @@
     });
   }
 
-  w.APP = { render: render, TABS: TABS, orderBackHref: function () { return orderReturn; }, openOrder: function (id) {
+  w.APP = { render: render, TABS: TABS, backHref: backHref, goBack: goBack,
+    orderBackHref: function () { return backHref(orderReturn); }, openOrder: function (id) {
     var screen = document.getElementById("screen");
     if (screen) departure = {hash: activeHash, top: screen.scrollTop};
     w.location.hash = "#/order/" + encodeURIComponent(id);

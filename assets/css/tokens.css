@@ -62,9 +62,9 @@
   --shadow-float: 0 12px 34px -10px rgba(11, 19, 43, 0.2), 0 3px 8px -2px rgba(11, 19, 43, 0.06);
   --shadow-btn: 0 8px 18px -8px rgba(0, 102, 255, 0.75);
 
-  /* 尺寸：按 iPhone 17 Pro 的逻辑分辨率（2622×1206 px @3x → 402×874 pt） */
-  --shell-w: 402px;
-  --shell-h: 874px;
+  /* 尺寸：按 iPhone 17 Plus 的逻辑分辨率（2796×1290 px @3x → 430×932 pt） */
+  --shell-w: 430px;
+  --shell-h: 932px;
   --shell-r: 55px;        /* 屏幕圆角 */
   --device-bezel: 11px;   /* 黑边（屏幕到机身外沿） */
   --island-w: 122px;      /* 灵动岛 */

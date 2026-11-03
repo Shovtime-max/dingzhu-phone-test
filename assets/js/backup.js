@@ -143,11 +143,12 @@
     var U = w.UI;
     var mask = U.sheet('<h3>备份与恢复</h3>' +
       '<div class="sub">平时自动保存在这台设备。备份文件需要手动保存；换设备时选择文件恢复。</div>' +
-      '<button class="set-row" id="backupCreate" type="button" style="width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line-soft);font:inherit"><span class="si">' + U.icon('clipboard',18) + '</span><div><b>生成完整备份</b><span>订单、收款、队伍、资料和照片视频</span></div></button>' +
+      '<button class="set-row" id="backupCreate" type="button" style="width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line-soft);font:inherit"><span class="si">' + U.icon('clipboard',18) + '</span><div><b>生成完整备份</b><span>订单、收款、队伍、资料和照片视频，含地图 Key 与出发地</span></div></button>' +
       '<button class="set-row" id="backupPick" type="button" style="width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line-soft);font:inherit"><span class="si">' + U.icon('undo',18) + '</span><div><b>从备份文件恢复</b><span>先检查文件，再确认替换本机数据</span></div></button>' +
       '<button class="set-row" id="backupUndo" type="button" style="display:none;width:100%;text-align:left;background:transparent;border:0;border-bottom:1px solid var(--line-soft);font:inherit"><span class="si">' + U.icon('undo',18) + '</span><div><b>撤销上次恢复</b><span>回到恢复前的数据；之后的改动也会被替换</span></div></button>' +
       '<input type="file" id="backupFile" hidden>' +
-      '<div class="sub" id="backupStatus" role="status" aria-live="polite"></div>');
+      '<div class="sub" id="backupStatus" role="status" aria-live="polite"></div>' +
+      '<button type="button" class="btn ghost mt14" data-sheet-back>返回</button>');
     var create = document.getElementById('backupCreate'), pick = document.getElementById('backupPick'), file = document.getElementById('backupFile');
     var undoButton = document.getElementById('backupUndo'), status = document.getElementById('backupStatus');
     var busy = false;
@@ -159,10 +160,12 @@
       return build().then(function (result) {
         loading('');
         if (document.getElementById('backupCreate') !== create) return;
-        var ready = U.sheet('<h3>备份文件已生成</h3><div class="sub">' + U.esc(summary(result.summary, result.photos)) + '<br>' + U.esc(size(result.file.size)) + ' · ' + U.esc(new Date(result.createdAt).toLocaleString()) + '</div>' +
+        var ready = U.sheet('<h3>备份文件已生成</h3><div class="sub">' + U.esc(summary(result.summary, result.photos)) + '<br>' + U.esc(size(result.file.size)) + ' · ' + U.esc(new Date(result.createdAt).toLocaleString()) +
+          '<br>' + U.esc((result.summary.hasKey ? "含高德地图 Key" : "未设高德 Key") + (result.summary.place ? " · 出发地 " + result.summary.place : " · 未设出发地")) + '</div>' +
           '<div class="key-warn">点击下方按钮后，在系统菜单中选择“存储到文件”，再选“我的 iPhone”或“iCloud 云盘”。请确认文件已经保存。</div>' +
           '<button class="btn primary mt14" id="backupSave">保存备份文件</button>' +
-          '<button type="button" class="btn ghost mt10" id="backupDownload" style="width:100%">直接下载备份文件</button><div class="sub mt10" id="backupSaveStatus" role="status" aria-live="polite"></div>');
+          '<button type="button" class="btn ghost mt10" id="backupDownload" style="width:100%">直接下载备份文件</button><div class="sub mt10" id="backupSaveStatus" role="status" aria-live="polite"></div>' +
+          '<button type="button" class="btn ghost mt10" data-sheet-back style="width:100%">返回</button>');
         var save = document.getElementById('backupSave');
         var saveStatus = document.getElementById('backupSaveStatus');
         function download() {
@@ -230,8 +233,9 @@
   }
   function confirmRestore(prepared) {
     var U = w.UI;
-    U.sheet('<h3>确认恢复这份备份？</h3><div class="sub">' + U.esc(new Date(prepared.createdAt).toLocaleString()) + '<br>' + U.esc(summary(prepared.summary, prepared.records.length)) + '</div>' +
-      '<div class="key-warn">恢复会替换本机当前数据。当前数据将保留为恢复前副本，可在“备份与恢复”中撤销。</div>' +
+    U.sheet('<h3>确认恢复这份备份？</h3><div class="sub">' + U.esc(new Date(prepared.createdAt).toLocaleString()) + '<br>' + U.esc(summary(prepared.summary, prepared.records.length)) +
+      '<br>' + U.esc((prepared.summary.hasKey ? "含高德地图 Key" : "备份里没有地图 Key") + (prepared.summary.place ? " · 出发地 " + prepared.summary.place : " · 备份里没有出发地")) + '</div>' +
+      '<div class="key-warn">恢复会替换本机当前数据，也包括地图 Key 和队伍出发地。当前数据将保留为恢复前副本，可在“备份与恢复”中撤销。</div>' +
       '<div class="btn-row mt14"><button class="btn ghost" id="restoreCancel">取消</button><button class="btn primary" id="restoreConfirm">确认恢复</button></div>');
     document.getElementById('restoreCancel').addEventListener('click', function () { U.closeSheet(); });
     var yes = document.getElementById('restoreConfirm');

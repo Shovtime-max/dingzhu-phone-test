@@ -202,8 +202,12 @@
         '<div class="statline">' +
           '<div class="st"><div class="k">报价合计</div><div class="v">¥' + U.n(s.quote) + "</div></div>" +
           '<div class="st"><div class="k">已收</div><div class="v green-t">¥' + U.n(s.paid) + "</div></div>" +
-          '<div class="st"><div class="k">待收</div><div class="v orange-t">¥' + U.n(s.due) + "</div></div>" +
+          '<div class="st"><div class="k">完工待收</div><div class="v orange-t">¥' + U.n(s.due) + "</div></div>" +
         "</div>" +
+        /* 没完工的尾款不算待收：单独说明，别让人以为金额漏算了 */
+        (s.openDue > 0
+          ? '<div class="hero-note">另 ' + s.openCount + " 单未完工 · 尾款 ¥" + U.n(s.openDue) + " 未到收款节点，不计入待收</div>"
+          : "") +
         '<div class="bar thin mt12"><i class="green" style="width:' + (s.rate * 100).toFixed(1) + '%"></i></div>' +
       "</div>"
     );

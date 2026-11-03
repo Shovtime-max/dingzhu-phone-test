@@ -37,7 +37,25 @@
     "棋山镇":   { lat: 35.871407, lng: 118.885776, county: "莒县",   city: "日照市", precision: "town", alias: "碁山镇" },
     "龙山镇":   { lat: 35.510047, lng: 118.997324, county: "莒县",   city: "日照市", precision: "town" },
     /* 原名写成「石桥镇」，实际是诸城市的石桥子镇 —— 在潍坊，不在日照 */
-    "石桥子镇": { lat: 36.156829, lng: 119.272473, county: "诸城市", city: "潍坊市", precision: "town" }
+    "石桥子镇": { lat: 36.156829, lng: 119.272473, county: "诸城市", city: "潍坊市", precision: "town" },
+
+    /* ---------- 诸城市（潍坊）3 街道 + 10 镇，2026-11-03 补 ----------
+       原来这张表只有临沂/日照的 5 个镇，诸城一带的单一条都匹配不到坐标，
+       结果就是「档期 → 点某天 → 当天没有施工点」，地图上自然没有点位。
+       坐标取腾讯地图地名库（GCJ-02），和地图瓦片同一套坐标系，贴图不偏。
+       仍标 precision:"town" —— 只到镇中心，同镇几户会在屏幕上环形错开。 */
+    "密州街道": { lat: 35.965862, lng: 119.514773, county: "诸城市", city: "潍坊市", precision: "town" },
+    "龙都街道": { lat: 35.964984, lng: 119.341153, county: "诸城市", city: "潍坊市", precision: "town" },
+    "舜王街道": { lat: 36.112149, lng: 119.409577, county: "诸城市", city: "潍坊市", precision: "town" },
+    "枳沟镇":   { lat: 35.917180, lng: 119.227569, county: "诸城市", city: "潍坊市", precision: "town" },
+    "贾悦镇":   { lat: 36.025163, lng: 119.190808, county: "诸城市", city: "潍坊市", precision: "town" },
+    "相州镇":   { lat: 36.162030, lng: 119.417930, county: "诸城市", city: "潍坊市", precision: "town" },
+    "昌城镇":   { lat: 36.090309, lng: 119.465844, county: "诸城市", city: "潍坊市", precision: "town" },
+    "百尺河镇": { lat: 36.116012, lng: 119.543614, county: "诸城市", city: "潍坊市", precision: "town" },
+    "辛兴镇":   { lat: 36.049590, lng: 119.557828, county: "诸城市", city: "潍坊市", precision: "town" },
+    "林家村镇": { lat: 35.994839, lng: 119.654230, county: "诸城市", city: "潍坊市", precision: "town" },
+    "皇华镇":   { lat: 35.888076, lng: 119.462254, county: "诸城市", city: "潍坊市", precision: "town" },
+    "桃林镇":   { lat: 35.800547, lng: 119.537959, county: "诸城市", city: "潍坊市", precision: "town" }
   };
   /* 浏览器里存过的老订单还是旧名「石桥镇」，别名指过去，别让它们掉图 */
   TOWN["石桥镇"] = TOWN["石桥子镇"];
@@ -52,11 +70,26 @@
     ["许孟镇", "赵家洼村"], ["许孟镇", "赵家岭村"], ["许孟镇", "孙家楼村"],
     ["棋山镇", "棋山南村"], ["棋山镇", "北沟村"], ["棋山镇", "西河村"],
     ["龙山镇", "龙山东村"], ["龙山镇", "李家庄村"],
-    ["石桥子镇", "石桥村"], ["石桥子镇", "王家沟村"]
+    ["石桥子镇", "石桥村"], ["石桥子镇", "王家沟村"],
+    /* 诸城常见村，先按镇中心落点（precision 仍是 town），录单联想能认出来 */
+    ["林家村镇", "林家村"],
+    ["桃林镇", "合乐子村"], ["皇华镇", "皇华店村"], ["辛兴镇", "米沟村"],
+    ["百尺河镇", "岳沟村"], ["昌城镇", "昌城村"], ["相州镇", "相州村"]
   ].forEach(function (p) {
     var t = TOWN[p[0]];
     if (!t) return;
     SEED.push({ town: p[0], village: p[1], lat: t.lat, lng: t.lng, precision: "town" });
+  });
+
+  /* 查到真实村口坐标的，单独放（precision: village），比镇中心准得多。
+     瓦店村与石门村同属林家村镇，但一个在镇驻地、一个在镇南 12 公里，
+     只有村坐标才能把这两户分开。来源：腾讯地图地名库（GCJ-02）。 */
+  [
+    { town: "林家村镇", village: "瓦店村", lat: 35.979949, lng: 119.593809 },
+    { town: "林家村镇", village: "石门村", lat: 35.890964, lng: 119.579512 }
+  ].forEach(function (v) {
+    SEED.push({ town: v.town, village: v.village, lat: v.lat, lng: v.lng,
+                precision: "village", source: "腾讯地图" });
   });
 
   /* TOWN 已在上面按高德回填值定义，此处不再重复 */
@@ -135,6 +168,21 @@
     }
     if (town && TOWN[town]) {
       return { town: town, village: village || "", lat: TOWN[town].lat, lng: TOWN[town].lng, source: "town" };
+    }
+    return null;
+  }
+
+  /* 只认「真实村口坐标」的村（precision: village）；没有就返回 null，
+     交给上层退回镇中心。村名要完全对上，镇名给了就一起校验。 */
+  function villagePoint(village, town) {
+    var v = clean(village);
+    if (!v) return null;
+    var list = allSeed(), t = clean(town || "");
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].precision !== "village") continue;
+      if (clean(list[i].village) !== v) continue;
+      if (t && clean(list[i].town) !== t) continue;
+      return { town: list[i].town, village: list[i].village, lat: list[i].lat, lng: list[i].lng };
     }
     return null;
   }
@@ -1070,6 +1118,8 @@
     health: health,
     setKey: setKey,
     directKey: directKey,
+    /* 备份恢复时用：把备份里的 Key 写回本机（不走联网校验，恢复后由体检自己报状态） */
+    setAmapKey: function (k) { return saveDirectKey(k || ""); },
     clearDirectKey: function () { return saveDirectKey(""); },
     mode: mode,
     status: function () { return status; },
@@ -1083,6 +1133,7 @@
     haversine: haversine,
     seedMatch: seedMatch,
     seedByVillage: seedByVillage,
+    villagePoint: villagePoint,
     searchPoi: searchPoi,
     addressForPoint: addressForPoint,
     locate: locate,

@@ -1,0 +1,10 @@
+# 本地调试与测试产物：不进仓库
+_local/
+tools/
+
+# 测试跑出来的结果文件
+tests/*-results.json
+tests/*.log
+
+# 系统文件
+.DS_Store
